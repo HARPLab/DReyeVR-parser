@@ -14,7 +14,9 @@ def get_filename_from_path(path: str) -> str:
     return actual_name
 
 
-def get_good_idxs(arr: np.ndarray, criteria: Callable[[Any], bool]) -> np.ndarray:
+def get_good_idxs(
+    arr: np.ndarray, criteria: Callable[[np.ndarray, Any], bool]
+) -> np.ndarray:
     good_idxs = np.where(criteria(arr) == True)
     return good_idxs
 
@@ -238,6 +240,40 @@ def convert_to_df(data: Dict[str, Any]) -> pd.DataFrame:
     return df
 
 
+def fill_gaps(
+    arr: np.ndarray, criteria: Callable[[Any], bool], mode: Optional[str] = "mean"
+) -> np.ndarray:
+    bad_idxs = np.where(criteria(arr) == True)
+    assert len(bad_idxs) == 1  # only supports 1D data rn
+    ret = arr
+    for i in bad_idxs[0]:
+        if mode == "mean":
+            # check lower bound
+            lo = i - 1
+            while lo > 0 and criteria(arr[lo]) == True:
+                lo -= 1
+            if lo < 0:  # HACK for bounds check
+                ret[i] = np.mean(arr)
+                continue
+
+            # check upper bound
+            hi = i + 1
+            while hi < len(arr) - 1 and criteria(arr[hi]) == True:
+                hi += 1
+            if hi > len(arr) - 1:  # HACK for bounds check
+                ret[i] = np.mean(arr)
+                continue
+
+            ret[i] = (ret[lo] + ret[hi]) / 2
+        # TODO: add other modes
+    assert ret.shape == arr.shape
+    try:
+        assert len(np.where(criteria(ret) == True)[0]) == 0  # no more bad idxs
+    except:
+        print("ERROR: some gaps still unfilled!!")
+    return ret
+
+
 def compute_YP(arr: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     # using arr as a matrix of direction vectors
     n: int = len(arr)
@@ -251,3 +287,67 @@ def compute_YP(arr: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     gaze_pitches = np.arctan2(zs, xs) * 180 / np.pi
     gaze_yaws = np.arctan2(ys, xs) * 180 / np.pi
     return gaze_yaws, gaze_pitches
+
+
+def filter_to_idxs(
+    data: Dict[str, Any], idxs: Optional[np.ndarray] = None, mode: str = "all"
+) -> Dict[str, Any]:
+    assert mode == "all"  # TODO
+    if idxs is not None:
+        # compute the good idxs if not provided
+        eye = data["EyeTracker"]
+        all_valid = (
+            eye["COMBINEDGazeValid"]
+            & eye["LEFTGazeValid"]
+            & eye["LEFTEyeOpennessValid"]
+            & (eye["LEFTEyeOpenness"] > 0)
+            & eye["LEFTPupilPositionValid"]
+            & eye["RIGHTGazeValid"]
+            & (eye["RIGHTEyeOpenness"] > 0)
+            & eye["RIGHTEyeOpennessValid"]
+            & eye["RIGHTPupilPositionValid"]
+        )
+        idxs = np.where(all_valid == 1)
+        print(f"Total validity : {100 * np.sum(all_valid) / len(all_valid):.3f}%")
+    filtered_data = {}
+    for k in data.keys():
+        if isinstance(data[k], dict):
+            filtered_data[k] = filter_to_idxs(data[k], idxs, mode)
+        else:
+            assert isinstance(data[k], np.ndarray)
+            filtered_data[k] = np.squeeze(data[k][idxs])
+    return filtered_data
+
+
+def trim_data(data: Dict[str, Any], trim_bounds: Tuple[int, int]) -> Dict[str, Any]:
+    trimmed_data = {}
+    for k in data.keys():
+        if isinstance(data[k], dict):
+            trimmed_data[k] = trim_data(data[k], trim_bounds)
+        else:
+            assert isinstance(data[k], np.ndarray)
+            trimmed_data[k] = data[k][trim_bounds[0] : -trim_bounds[1]]
+    return trimmed_data
+
+
+def singleify(data):
+    single = {}
+    for k in data.keys():
+        if isinstance(data[k], dict):
+            single[k] = singleify(data[k])
+        else:
+            assert isinstance(data[k], np.ndarray)
+            if len(data[k].shape) > 1:  # beyond 1dimensional
+                _, d = data[k].shape
+                for i in range(d):
+                    single[f"{k}_{i}"] = data[k][:, i]
+            else:
+                single[k] = data[k]
+    return single
+
+
+def smooth_arr(arr, kernel_size=5):
+    kernel = np.ones(kernel_size) / kernel_size
+    arr_convolved = np.convolve(arr, kernel, mode="same")
+    assert arr_convolved.shape == arr.shape
+    return arr_convolved
