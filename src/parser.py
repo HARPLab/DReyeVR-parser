@@ -97,6 +97,67 @@ def validate(data: Dict[str, Any], L: Optional[int] = None) -> None:
         assert min(CA_lens) == max(CA_lens)  # all same lens
 
 
+def parse_file_py(
+    path: str, force_reload: Optional[bool] = False, debug: Optional[bool] = False
+) -> Dict[str, np.ndarray or dict]:
+    # NOTE: this function is a parser for data that is listened to from a PythonAPI client
+    # rather than the raw simulator recording files
+
+    if force_reload is False:
+        """try to load cached data"""
+        data = try_load_data(path)
+        if data is not None:
+            return data
+
+    # this function reads in a DReyeVR recording file and parses every line to return
+    # a dictionary following the parser structure depending on the group types
+
+    assert os.path.exists(path)
+    print(f"Reading DReyeVR (python) logfile: {path}")
+
+    data: Dict[str, List[Any]] = {}
+
+    def add_to_dict(data: Dict[str, List[Any]], incoming: Dict[str, List[Any]]) -> None:
+        # this fn adds/updates data from incoming to data
+
+        # add/ensure all existing keys exist
+        for k in incoming.keys():
+            if k not in data:
+                data[k] = []
+
+        for k in data.keys():
+            data[k].append(incoming[k])
+
+    with open(path, "r") as f:
+        start_t: float = time.time()
+        for i, line in enumerate(f.readlines()):
+            # convert numpy prints to lists
+            clean_line: str = line.replace("array(", "").replace("])", "]")
+            if clean_line[-2:] == ",\n":
+                clean_line = clean_line[:-2]  # remove the newline suffix
+            try:
+                line_dict: str = eval(clean_line)
+            except Exception as e:
+                print(f'Unable to read line {i} due to "{e}"')
+                continue
+            if isinstance(line_dict, dict):
+                add_to_dict(data, line_dict)
+            # TODO: add checks to ensure all lists are the same length
+
+            # print status
+            if i % 500 == 0:
+                t: float = time.time() - start_t
+                print(f"Lines read: {i} @ {t:.3f}s", end="\r", flush=True)
+
+    n: int = len(data[list(data.keys())[0]])
+    print(f"successfully read {n} frames in {time.time() - start_t:.3f}s")
+
+    # TODO: do everything in np from the get-go rather than convert at the end
+    data = convert_to_np(data)
+    cache_data(data, path)
+    return data
+
+
 def parse_file(
     path: str, force_reload: Optional[bool] = False, debug: Optional[bool] = False
 ) -> Dict[str, np.ndarray or dict]:
