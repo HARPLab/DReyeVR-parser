@@ -138,16 +138,31 @@ def VectorFromRotator(arr: np.ndarray) -> np.ndarray:
     return vec
 
 
-def RotateVector(vec: np.ndarray, rot: np.ndarray) -> np.ndarray:
+def RotateVector(
+    vec: np.ndarray, rot: np.ndarray, rot_order: str = "PYR"
+) -> np.ndarray:
     # implementing FRotator::RotateVector()
     # https://docs.unrealengine.com/4.27/en-US/API/Runtime/Core/Math/FRotator/RotateVector/
     n = len(vec)
     assert vec.shape == (n, 3)
-    assert rot.shape == (n, 3)  # rotator is in degrees (pitch, yaw, roll)
+    assert rot.shape == (n, 3)  # rotator is in degrees
     # rotmat = np.zeros((n, 3, 3)) # creating rotation matrices
-    pitch: np.ndarray = rot[:, 0]
-    yaw: np.ndarray = rot[:, 1]
-    roll: np.ndarray = rot[:, 2]
+    # using default rotation order as (Pitch, Yaw, Roll) as per:
+    # https://github.com/EpicGames/UnrealEngine/blob/d9d435c9c280b99a6c679b517adedd3f4b02cfd7/Engine/Source/Runtime/Core/Public/Math/Rotator.h#L769-L772
+
+    assert len(rot_order) == 3
+    assert "".join(sorted(rot_order)).lower() == "pry"
+    pitch, yaw, roll = None, None, None
+    for i, c in enumerate(rot_order):
+        if c.lower() == "p":
+            pitch = rot[:, i]
+        elif c.lower() == "y":
+            yaw = rot[:, i]
+        elif c.lower() == "r":
+            roll = rot[:, i]
+        else:
+            raise NotImplementedError
+
     CP = np.cos(pitch)
     SP = np.sin(pitch)
     CY = np.cos(yaw)
