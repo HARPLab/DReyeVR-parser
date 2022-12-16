@@ -1,25 +1,19 @@
-from typing import Dict
+from typing import Dict, Optional, List
 from src.parser import parse_file
 from src.utils import get_good_idxs, fill_gaps, smooth_arr, compute_YP
-from src.visualizer import plot_versus, plot_histogram2d, plot_vector_vs_time, plot_3Dt
+from src.visualizer import (
+    plot_versus,
+    plot_histogram2d,
+    plot_vector_vs_time,
+    plot_3Dt,
+    set_results_dir,
+)
 import numpy as np
 import argparse
 
-if __name__ == "__main__":
-    argparser = argparse.ArgumentParser(description="DReyeVR recording parser")
-    argparser.add_argument(
-        "-f",
-        "--file",
-        metavar="P",
-        default=None,
-        type=str,
-        help="path of the (human readable) recording file",
-    )
-    args = argparser.parse_args()
-    filename: str = args.file
-    if filename is None:
-        print("Need to pass in the recording file")
-        exit(1)
+
+def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
+    set_results_dir(results_dir)
 
     """parse the file"""
     data: Dict[str, np.ndarray or dict] = parse_file(filename)
@@ -49,6 +43,7 @@ if __name__ == "__main__":
         units_y="mm",
         units_x="s",
         lines=True,
+        vlines=vlines,
     )
 
     pupil_R = data["EyeTracker"]["RIGHTPupilDiameter"]
@@ -63,6 +58,7 @@ if __name__ == "__main__":
         units_y="mm",
         units_x="s",
         lines=True,
+        vlines=vlines,
     )
 
     data["TimestampCarla"] = data["TimestampCarla"] / 1000  # to seconds
@@ -83,41 +79,44 @@ if __name__ == "__main__":
     )
     all_valid_idxs = np.where(all_valid == 1)
     print(f"Total validity percentage: {100 * np.sum(all_valid) / len(all_valid):.3f}%")
-    eye_valid_t = t[all_valid_idxs]
 
     plot_versus(
         data_x=t,
         name_x="Time",
         data_y=all_valid,
         name_y="Confidence (validity)",
-        units_y="",
         units_x="s",
         lines=False,
+        vlines=vlines,
     )
 
-    pupil_mm_L = eye["LEFTPupilDiameter"][all_valid_idxs]
+    pupil_mm_L = eye["LEFTPupilDiameter"]
     if (pupil_mm_L < 0).any():  # correct for negatives
         pupil_mm_L = fill_gaps(pupil_mm_L, lambda x: x < 0, mode="mean")
     plot_versus(
-        data_x=eye_valid_t,
+        data_x=t,
         name_x="Time",
         data_y=smooth_arr(pupil_mm_L, 100),
         name_y="Left pupil diameter",
         units_y="mm",
         units_x="s",
+        valid_idxs=all_valid_idxs,
         lines=True,
+        vlines=vlines,
     )
 
-    pupil_mm_R = eye["RIGHTPupilDiameter"][all_valid_idxs]
+    pupil_mm_R = eye["RIGHTPupilDiameter"]
     if (pupil_mm_R < 0).any():  # correct for negatives
         pupil_mm_R = fill_gaps(pupil_mm_R, lambda x: x < 0, mode="mean")
     plot_versus(
-        data_x=eye_valid_t,
+        data_x=t,
         name_x="Time",
         data_y=smooth_arr(pupil_mm_R),
         name_y="Right pupil diameter",
         units_y="mm",
         units_x="s",
+        valid_idxs=all_valid_idxs,
+        vlines=vlines,
         lines=True,
     )
 
@@ -158,42 +157,94 @@ if __name__ == "__main__":
 
     """plot 3D position over time"""
     pos3D = data["EgoVariables"]["VehicleLoc"]
-    plot_vector_vs_time(pos3D, t, "EgoPos XYZ")
-    # found that the first ~50 is kinda garbage, just omit them
-    omit_front: int = 50
-    plot_vector_vs_time(pos3D[omit_front:], t[omit_front:], "EgoPos XYZ (50:)")
+    plot_vector_vs_time(pos3D, t, "EgoPos XYZ", vlines=vlines)
 
-    rot3D = data["EgoVariables"]["VehicleRot"][omit_front:]
+    if vlines is not None:  # if you want to zoom in to a particular point in time
+        zoom_pt = vlines[0]  # TODO: generalize for all vlines
+        width = 300  # number of ticks before/after the zoom point ("window size")
+        print(f"Zooming in to time: {zoom_pt:.2f}s")
+        # trimming off the ends
+        omit_front: int = np.searchsorted(t, zoom_pt) - width
+        omit_rear: int = len(t) - (np.searchsorted(t, zoom_pt) + width)
+
+        # if using valid-ified t data
+        valid_t: np.ndarray = t[all_valid_idxs]
+        omit_front_valid: int = np.searchsorted(valid_t, zoom_pt) - width
+        omit_rear_valid: int = len(valid_t) - np.searchsorted(valid_t, zoom_pt) + width
+    else:
+        omit_front: int = 300  # hardcoded number of ticks to ignore from the start
+        omit_rear: int = 300  # hardcoded number of ticks to ignore from the end
+
+        # if using valid-ified t data (unnecessary unless searching)
+        omit_front_valid: int = omit_front
+        omit_rear_valid: int = omit_rear
+
+    plot_vector_vs_time(
+        pos3D, t, "EgoPos XYZ", omit=(omit_front, omit_rear), vlines=vlines
+    )
+
+    rot3D = data["EgoVariables"]["VehicleRot"]
     plot_vector_vs_time(
         rot3D,
-        t[omit_front:],
-        "EgoRot PYR (50:)",
+        t,
+        "EgoRot PYR",
         ax_titles=["P", "Y", "R"],
+        omit=(omit_front, omit_rear),
+        vlines=vlines,
     )
 
     plot_3Dt(
-        xyz=pos3D[omit_front:],
-        t=t[omit_front:],
+        xyz=pos3D,
+        t=t,
         title="Vehicle position over time",
         interactive=False,  # set to True to move it around
+        omit=(omit_front, omit_rear),
     )
 
+    """plot custom actor data"""
+    if "CustomActor" in data:
+        for name in data["CustomActor"].keys():
+            CA_data: dict = data["CustomActor"][name]
+            plot_3Dt(
+                xyz=CA_data["Location"],
+                t=CA_data["t"],
+                title=f"CA {name} position",
+                interactive=False,  # set to True to move it around
+                # omit=(omit_front, omit_rear),
+            )
+
     """plot pupil position"""
-    pupil_pos_L = eye["LEFTPupilPosition"][all_valid_idxs]
-    plot_vector_vs_time(pupil_pos_L, eye_valid_t, "Left pupil position")
+    pupil_pos_L = eye["LEFTPupilPosition"]
+    plot_vector_vs_time(
+        pupil_pos_L,
+        t,
+        "Left pupil position",
+        valid_idxs=all_valid_idxs,
+        omit=(omit_front_valid, omit_rear_valid),
+        norm=True,
+        vlines=vlines,
+    )
     plot_histogram2d(
-        data_x=pupil_pos_L[:, 0],
-        data_y=pupil_pos_L[:, 1],
+        data_x=pupil_pos_L[all_valid_idxs][:, 0],
+        data_y=pupil_pos_L[all_valid_idxs][:, 1],
         name_x="LPupilX",
         name_y="LPupilY",
         bins=100,
     )
 
-    pupil_pos_R = eye["RIGHTPupilPosition"][all_valid_idxs]
-    plot_vector_vs_time(pupil_pos_R, eye_valid_t, "Right pupil position")
+    pupil_pos_R = eye["RIGHTPupilPosition"]
+    plot_vector_vs_time(
+        pupil_pos_R,
+        t,
+        "Right pupil position",
+        valid_idxs=all_valid_idxs,
+        omit=(omit_front_valid, omit_rear_valid),
+        norm=True,
+        vlines=vlines,
+    )
     plot_histogram2d(
-        data_x=pupil_pos_R[:, 0],
-        data_y=pupil_pos_R[:, 1],
+        data_x=pupil_pos_R[all_valid_idxs][:, 0],
+        data_y=pupil_pos_R[all_valid_idxs][:, 1],
         name_x="RPupilX",
         name_y="RPupilY",
         bins=100,
@@ -201,23 +252,29 @@ if __name__ == "__main__":
 
     """plot eye vars"""
     plot_versus(
-        data_x=eye_valid_t,
+        data_x=t,
         name_x="Time",
         data_y=eye["LEFTEyeOpenness"],
         name_y="Left eye openness",
         units_y="mm",
         units_x="s",
+        valid_idxs=all_valid_idxs,
+        omit=(omit_front_valid, omit_rear_valid),
+        vlines=vlines,
         lines=True,
     )
 
     plot_versus(
-        data_x=eye_valid_t,
+        data_x=t,
         name_x="Time",
         data_y=eye["RIGHTEyeOpenness"],
         name_y="Right eye openness",
         units_y="mm",
         units_x="s",
         lines=True,
+        valid_idxs=all_valid_idxs,
+        omit=(omit_front_valid, omit_rear_valid),
+        vlines=vlines,
     )
 
     """compute intrinsic factors"""
@@ -237,6 +294,8 @@ if __name__ == "__main__":
         units_y="mph",
         units_x="s",
         lines=True,
+        vlines=vlines,
+        omit=(omit_front, omit_rear),
     )
 
     ego_accel = (np.diff(ego_velocity, axis=0).T / delta_ts[1:]).T
@@ -248,7 +307,22 @@ if __name__ == "__main__":
         name_y="Ego Accel",
         units_y="cm/s^2",
         units_x="s",
+        vlines=vlines,
         lines=True,
+        omit=(omit_front, omit_rear),
+    )
+    plot_versus(
+        data_x=t[2:],
+        name_x="Time",
+        data_y=smooth_arr(
+            np.linalg.norm(ego_accel, axis=1), kernel_size=20
+        ),  # accel (3D) to speed (1D)
+        name_y="Smooth Ego Accel",
+        units_y="cm/s^2",
+        units_x="s",
+        vlines=vlines,
+        lines=True,
+        omit=(omit_front, omit_rear),
     )
     # jerk, snap, crackle, pop?
 
@@ -259,12 +333,14 @@ if __name__ == "__main__":
     # angular_disp[pos_roll_idxs][:, 1] = -1 * (360 - angular_disp[pos_roll_idxs][:, 1])
     # neg_roll_idxs = np.squeeze(np.where(np.diff(rot3D[:, 1], axis=0) < -359))
     # angular_disp[neg_roll_idxs][:, 1] = 360 + angular_disp[neg_roll_idxs][:, 1]
-    angular_vel = (angular_disp.T / delta_ts[omit_front:]).T
+    angular_vel = (angular_disp.T / delta_ts).T
     plot_vector_vs_time(
         angular_vel,
-        t[omit_front + 1 :],
-        "Delta EgoRot PYR (50:)",
+        t[1:],
+        "Delta EgoRot PYR",
         ax_titles=["P", "Y", "R"],
+        omit=(omit_front, omit_rear),
+        vlines=vlines,
     )
 
     # TODO: keep track of vehicles in the scene and track their positions (interpolated) over time
@@ -277,14 +353,30 @@ if __name__ == "__main__":
         name_y="Steering",
         units_y="Deg",
         units_x="s",
+        vlines=vlines,
         lines=True,
+        omit=(omit_front, omit_rear),
     )
 
     """velocity over time"""
 
-    plot_vector_vs_time(ego_velocity[50:], t[1 + 50 :], "EgoVel XYZ")
-    plot_vector_vs_time(ego_accel[50:], t[2 + 50 :], "EgoAccel XYZ")
-    plot_vector_vs_time(data["EgoVariables"]["VehicleRot"], t, "EgoRot XYZ")
+    plot_vector_vs_time(
+        ego_velocity,
+        t[1:],
+        "EgoVel XYZ",
+        omit=(omit_front, omit_rear),
+        vlines=vlines,
+    )
+    plot_vector_vs_time(
+        ego_accel, t[2:], "EgoAccel XYZ", omit=(omit_front, omit_rear), vlines=vlines
+    )
+    plot_vector_vs_time(
+        data["EgoVariables"]["VehicleRot"],
+        t,
+        "EgoRot XYZ",
+        omit=(omit_front, omit_rear),
+        vlines=vlines,
+    )
 
     """Stored velocity over time"""
     plot_versus(
@@ -293,8 +385,10 @@ if __name__ == "__main__":
         data_y=data["EgoVariables"]["VehicleVel"],
         name_y="Velocity",
         units_y="m/s",
+        vlines=vlines,
         units_x="s",
         lines=True,
+        omit=(omit_front, omit_rear),
     )
 
     plot_versus(
@@ -302,9 +396,10 @@ if __name__ == "__main__":
         name_x="Time",
         data_y=data["UserInputs"]["Throttle"],
         name_y="Throttle",
-        units_y="",
         units_x="s",
         lines=True,
+        vlines=vlines,
+        omit=(omit_front, omit_rear),
     )
 
     plot_versus(
@@ -312,16 +407,118 @@ if __name__ == "__main__":
         name_x="Time",
         data_y=data["UserInputs"]["Brake"],
         name_y="Brake",
-        units_y="",
         units_x="s",
         lines=True,
+        vlines=vlines,
+        omit=(omit_front, omit_rear),
     )
 
     """plot relative camera things"""
-    plot_vector_vs_time(data["EgoVariables"]["CameraLoc"], t, "CameraLoc")
-    plot_vector_vs_time(data["EgoVariables"]["CameraRot"], t, "CameraRot")
+    plot_vector_vs_time(
+        data["EgoVariables"]["CameraLoc"],
+        t,
+        "CameraLoc",
+        omit=(omit_front, omit_rear),
+        vlines=vlines,
+    )
+    plot_vector_vs_time(
+        data["EgoVariables"]["CameraRot"],
+        t,
+        "CameraRot",
+        omit=(omit_front, omit_rear),
+        vlines=vlines,
+    )
 
     """plot gaze things"""
-    plot_vector_vs_time(data["EyeTracker"]["COMBINEDGazeDir"], t, "CombinedGaze")
-    plot_vector_vs_time(data["EyeTracker"]["LEFTGazeDir"], t, "LeftGaze")
-    plot_vector_vs_time(data["EyeTracker"]["RIGHTGazeDir"], t, "RightGaze")
+    plot_vector_vs_time(
+        data["EyeTracker"]["COMBINEDGazeDir"],
+        t,
+        "CombinedGaze",
+        valid_idxs=all_valid_idxs,
+        omit=(omit_front_valid, omit_rear_valid),
+        norm=True,
+        vlines=vlines,
+    )
+    plot_vector_vs_time(
+        data["EyeTracker"]["LEFTGazeDir"],
+        t,
+        "LeftGaze",
+        valid_idxs=all_valid_idxs,
+        norm=True,
+        omit=(omit_front_valid, omit_rear_valid),
+        vlines=vlines,
+    )
+    plot_vector_vs_time(
+        data["EyeTracker"]["RIGHTGazeDir"],
+        t,
+        "RightGaze",
+        valid_idxs=all_valid_idxs,
+        omit=(omit_front_valid, omit_rear_valid),
+        norm=True,
+        vlines=vlines,
+    )
+
+    """plot actor things"""
+    np.random.seed(2)
+    for _ in range(10):  # plot 10 random actors
+        Id: int = np.random.choice(np.array(list(data["Actors"].keys())))
+        actor_data = data["Actors"][Id]
+
+        def get_non_zero_idxs(arr: np.ndarray) -> np.ndarray:
+            return np.array([i for i in range(len(arr)) if (arr[i] != 0).all()])
+
+        non_zeros = get_non_zero_idxs(actor_data["Location"])
+        pos3D = actor_data["Location"][non_zeros]
+        _t = actor_data["Time"][non_zeros]
+        plot_3Dt(
+            xyz=pos3D,
+            t=_t,
+            title=f"Actor id {Id} position over time",
+            interactive=False,  # set to True to move it around
+        )
+
+        # plot the distance to this actor (need to match their timestamps)
+        haz_t = actor_data["Time"] / 1000  # to get in seconds
+        t = t  # should be a superset of haz_t (contain everything + more)
+        idxs = np.searchsorted(t, haz_t)  # find  where hazard's t is in world t
+        new_t = t[idxs]
+
+        ego_xyz = data["EgoVariables"]["VehicleLoc"][idxs]
+        haz_xyz = actor_data["Location"]
+
+        assert ego_xyz.shape == haz_xyz.shape
+        assert len(ego_xyz) == len(new_t)
+        dist = np.linalg.norm(ego_xyz - haz_xyz, axis=1) / 100
+        print(f"Minimum distance: {np.min(dist):.2f}m")
+        plot_versus(
+            data_x=new_t,
+            name_x="Time",
+            data_y=dist,
+            name_y=f"Distance to actor {Id}",
+            units_y="m",
+            units_x="s",
+            lines=True,
+            vlines=vlines,
+            omit=(omit_front, omit_rear),
+        )
+
+
+if __name__ == "__main__":
+    argparser = argparse.ArgumentParser(description="DReyeVR recording parser")
+    argparser.add_argument(
+        "-f",
+        "--file",
+        metavar="P",
+        type=str,
+        help="path of the (human readable) recording file",
+    )
+    argparser.add_argument(
+        "-o",
+        "--out",
+        default="results",
+        type=str,
+        help="path of the results folder",
+    )
+    args = argparser.parse_args()
+
+    main(args.file, args.out)

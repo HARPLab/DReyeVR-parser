@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -23,15 +23,23 @@ def plot_versus(
     name_y: Optional[str] = "Y",
     units_x: Optional[str] = None,
     units_y: Optional[str] = None,
-    trim: Tuple[int, int] = (0, 0),
+    title: str = None,
     lines: Optional[bool] = False,
-    colour: Optional[str] = "r",
-):
-    # trim the starts and end of data
-    trim_start, trim_end = trim
-    max_size = min(len(data_x), len(data_y))
-    data_x = data_x[trim_start : max_size - trim_end]
-    data_y = data_y[trim_start : max_size - trim_end]
+    colour: Optional[str] = "b",
+    vlines: Optional[List[int]] = None,
+    valid_idxs: Optional[np.ndarray] = None,
+    omit: Optional[Tuple[int, int]] = None,
+    norm: Optional[bool] = False,  # normalize the data
+) -> None:
+    if valid_idxs is not None:
+        data_x = data_x[valid_idxs]
+        data_y = data_y[valid_idxs]
+    if norm is True:
+        # data_x = (data_x - np.mean(data_x)) / np.std(data_x) # don't normalize time
+        data_y = (data_y - np.mean(data_y)) / np.std(data_y)
+    if omit is not None:
+        data_x = data_x[omit[0] : -omit[1]]
+        data_y = data_y[omit[0] : -omit[1]]
 
     # create a figure that is 6in x 6in
     fig = plt.figure()
@@ -42,29 +50,38 @@ def plot_versus(
     unit_x_str = f" ({units_x})" if units_x is not None else ""
     unit_y_str = f" ({units_y})" if units_y is not None else ""
 
-    trim_str = " [" + str(trim_start) + ", " + str(trim_end) + "]"
-
     # label your graph, axes, and ticks on each axis
     plt.xlabel(name_x + unit_x_str, fontsize=16)
     plt.ylabel(name_y + unit_y_str, fontsize=16)
     plt.xticks()
     plt.yticks()
     plt.tick_params(labelsize=15)
-    if name_x == "":
-        plt.title(name_y + trim_str, fontsize=18)
-    else:
-        plt.title(name_y + " versus " + name_x + trim_str, fontsize=18)
+    if title is None:
+        nx = name_x.lower()
+        ny = name_y.lower()
+        title = f"{ny} vs {nx}"
+    plt.title(title, fontsize=18)
 
     # plot dots
     if lines:
         plt.plot(data_x, data_y, color=colour, linewidth=1)
     else:
         plt.plot(data_x, data_y, colour + "o")
+    if vlines is not None:
+        ymin = np.min(data_y)
+        ymax = np.max(data_y)
+        for x in vlines:
+            plt.vlines(
+                x,
+                ymin=ymin,
+                ymax=ymax,
+                linestyles="solid",
+                colors="r",
+            )
 
     # complete the layout, save figure, and show the figure for you to see
     plt.tight_layout()
-    filename = name_y + "_vs_" + name_x + ".png" if name_x != "" else name_y + ".png"
-    filename = f"{name_y} x {name_x}.png"
+    filename = f"{title}.png"
     save_figure_to_file(fig, filename)
 
 
@@ -175,7 +192,19 @@ def plot_vector_vs_time(
     title: str,
     ax_titles: Optional[Tuple[str]] = ("X", "Y", "Z"),
     silent: Optional[bool] = False,
+    vlines: Optional[List[int]] = None,
+    valid_idxs: Optional[np.ndarray] = None,
+    omit: Optional[Tuple[int, int]] = None,
+    norm: Optional[bool] = False,
 ) -> None:
+    if valid_idxs is not None:
+        xyz = xyz[valid_idxs]
+        t = t[valid_idxs]
+    if norm is True:
+        xyz = (xyz - np.mean(xyz, axis=0)) / np.std(xyz, axis=0)
+    if omit is not None:
+        xyz = xyz[omit[0] : -omit[1]]
+        t = t[omit[0] : -omit[1]]
     n, d = xyz.shape
     assert xyz.shape == (n, d)
     assert t.shape == (n,)
@@ -187,6 +216,18 @@ def plot_vector_vs_time(
         data_dim = xyz[:, dim]
         axs[dim].set(ylabel=ax_titles[dim] if dim < len(ax_titles) else "")
         axs[dim].plot(t, data_dim)
+        if vlines is not None:
+            ymin = np.min(data_dim)
+            ymax = np.max(data_dim)
+            for x in vlines:
+                axs[dim].vlines(
+                    x,
+                    ymin=ymin,
+                    ymax=ymax,
+                    linestyles="solid",
+                    colors="r",
+                )
+
     filename: str = f"{title}.png"
     save_figure_to_file(fig, filename, silent=silent)
 
@@ -197,7 +238,16 @@ def plot_3Dt(
     title: Optional[str] = None,
     axes_titles: Optional[Tuple[str]] = ("X", "Y", "Z"),
     interactive: Optional[bool] = False,
+    same_units_scale: Optional[bool] = True,
+    valid_idxs: Optional[np.ndarray] = None,
+    omit: Optional[Tuple[int, int]] = None,
 ) -> None:
+    if valid_idxs is not None:
+        xyz = xyz[valid_idxs]
+        t = t[valid_idxs]
+    if omit is not None:
+        xyz = xyz[omit[0] : -omit[1]]
+        t = t[omit[0] : -omit[1]]
     if interactive:
         try:
             mpl.use("TkAgg")
@@ -209,9 +259,14 @@ def plot_3Dt(
     assert t.shape == (n,)
     fig = plt.figure(figsize=(10, 10))
     ax = fig.add_subplot(111, projection="3d")
-    x = xyz[:, 0]
-    y = xyz[:, 1]
+    x = xyz[:, 1]
+    y = xyz[:, 0]
     z = xyz[:, 2]
+    if same_units_scale:
+        var_x: int = max(1, np.ptp(x))
+        var_y: int = max(1, np.ptp(y))
+        var_z: int = max(1, np.ptp(z))
+        ax.set_box_aspect((var_x, var_y, var_z))
     plot = ax.scatter(x, y, z, c=t)
     cb = plt.colorbar(plot, pad=0.2)
     # cb.set_ticklabels(["start", "end"])
@@ -224,6 +279,8 @@ def plot_3Dt(
     if interactive:
         plt.show()
         mpl.use("Agg")  # back to non gui-based
+        plt.close()
+        plt.clf()
     else:
         filename: str = f"{title}.png"
         save_figure_to_file(fig, filename)

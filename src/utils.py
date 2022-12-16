@@ -103,6 +103,10 @@ def convert_standalone_dict_to_list(
     return clean_data
 
 
+def cleanup_data_line(data_line: str) -> str:
+    return data_line.replace("}", "{").replace("{", ",").split(",")
+
+
 def convert_to_list(data: Dict[str, np.ndarray or dict]) -> Dict[str, list or dict]:
     list_data = {}
     for k in data.keys():

@@ -13,6 +13,7 @@ from utils import (
     convert_to_np,
     convert_standalone_dict_to_list,
     get_filename_from_path,
+    cleanup_data_line,
 )
 import numpy as np
 
@@ -22,22 +23,7 @@ cache_dir: str = os.path.join(parser_dir, "cache")
 os.makedirs(cache_dir, exist_ok=True)
 
 
-def parse_row(
-    data: Dict[str, Any],
-    data_line: str,
-    title: Optional[str] = "",
-    t: Optional[int] = 0,
-) -> None:
-    # cleanup data line
-    data_line: List[str] = data_line.replace("}", "{").replace("{", ",").split(",")
-
-    if title == "":  # find title with the data line
-        title: str = data_line[0].split(":")[0]
-        # remove title for first elem
-        data_line[0] = data_line[0].replace(f"{title}:", "")
-    working_map: Dict[str, Any] = {} if title not in data else data[title]
-    data[title] = working_map  # ensure this working set contributes to the larger set
-
+def parse_data_line(data_line: str, t: float, working_map: dict) -> dict:
     if t != 0:
         if (
             "t" not in working_map
@@ -75,6 +61,68 @@ def parse_row(
             working_map[key].append(value)
         else:
             raise NotImplementedError
+    return working_map
+
+
+def parse_row(
+    data: Dict[str, Any],
+    data_line: str,
+    title: Optional[str] = "",
+    t: Optional[int] = 0,
+) -> None:
+    # NOTE: this is for DReyeVR specific recorder lines!!! Not Carla!
+
+    # cleanup data line
+    data_line: List[str] = cleanup_data_line(data_line)
+
+    if title == "":  # find title with the data line
+        title: str = data_line[0].split(":")[0]
+        # remove title for first elem
+        data_line[0] = data_line[0].replace(f"{title}:", "")
+    working_map: Dict[str, Any] = {} if title not in data else data[title]
+    data[title] = working_map  # ensure this working set contributes to the larger set
+
+    working_map = parse_data_line(data_line, t, working_map)
+
+
+def parse_custom_actor(
+    data: Dict[str, Any],
+    data_line: str,
+    title: Optional[str] = "CustomActor",
+    t: Optional[int] = 0,
+):
+    # cleanup data line
+    data_line: List[str] = cleanup_data_line(data_line)
+    name: str = data_line[0].replace("Name:", "")
+
+    if title not in data:
+        data[title] = {}
+
+    working_map: Dict[str, Any] = {} if name not in data[title] else data[title][name]
+    data[title][
+        name
+    ] = working_map  # ensure this working set contributes to the larger set
+
+    working_map = parse_data_line(data_line, t, working_map)
+
+
+def parse_actor_location_rotation(
+    data: Dict[str, Any],
+    data_line: str,
+    title: Optional[str] = "",
+    t: Optional[int] = 0,
+):
+    Id: int = int(data_line[: data_line.find("Location")])
+    open_0: int = data_line.find("(")
+    close_0: int = data_line.find(")") + 1
+    open_1: int = close_0 + 2 + len("Rotation")  # always " Rotation "
+    loc_data: tuple = eval(data_line[open_0:close_0])
+    rot_data: tuple = eval(data_line[open_1:])
+    if Id not in data[title]:
+        data[title][Id] = {"Time": [], "Location": [], "Rotation": []}
+    data[title][Id]["Time"].append(t)
+    data[title][Id]["Location"].append(loc_data)
+    data[title][Id]["Rotation"].append(rot_data)
 
 
 def validate(data: Dict[str, Any], L: Optional[int] = None) -> None:
@@ -82,7 +130,7 @@ def validate(data: Dict[str, Any], L: Optional[int] = None) -> None:
     if L is None:
         L: int = len(data["TimeElapsed"])
     for k in data.keys():
-        if k == "CustomActor":
+        if k == "CustomActor" or k == "Actors":
             continue
         if isinstance(data[k], dict):
             validate(data[k], L)
@@ -93,8 +141,15 @@ def validate(data: Dict[str, Any], L: Optional[int] = None) -> None:
 
     # ensure the custom actor data is also good
     if "CustomActor" in data:
-        CA_lens = [len(x) for x in data["CustomActor"].values()]
-        assert min(CA_lens) == max(CA_lens)  # all same lens
+        for name in data["CustomActor"]:
+            CA_lens = [len(x) for x in data["CustomActor"][name].values()]
+            assert min(CA_lens) == max(CA_lens)  # all same lens
+
+    # ensure the Carla actor data is also good
+    if "Actors" in data:
+        for Id in data["Actors"].keys():
+            # all the actors' data structures are consistent with each other
+            assert all([len(x) for x in data["Actors"][Id].values()])
 
 
 def parse_file_py(
@@ -180,6 +235,10 @@ def parse_file(
     TimeElapsed: str = "Frame "
     DReyeVR_core: str = "[DReyeVR]"
     DReyeVR_CA: str = "[DReyeVR_CA]"
+    Carla_Actor: str = "Id: "
+
+    actors_key: str = "Actors"
+    data[actors_key] = {}
 
     with open(path, "r") as f:
         start_t: float = time.time()
@@ -205,7 +264,20 @@ def parse_file(
                 data_line: str = line.strip(DReyeVR_CA).strip("\n")
                 # can also use TimeElapsed here instead, but TimestampCarla is simulator based
                 t = data["TimestampCarla"][_no_title_key][-1]  # get carla time
-                parse_row(data, data_line, title="CustomActor", t=t)
+                parse_custom_actor(data, data_line, title="CustomActor", t=t)
+                if debug:
+                    validate(data)
+
+            # checking the line(s) for DReyeVR custom actor data
+            elif line[: len(Carla_Actor)] == Carla_Actor:
+                data_line: str = line.strip(Carla_Actor).strip("\n")
+                if "Location:" not in data_line or "Rotation" not in data_line:
+                    continue  # don't care about state, light, animation, etc.
+                if "TimestampCarla" in data:
+                    t = data["TimestampCarla"][_no_title_key][-1]  # get carla time
+                else:
+                    t = 0
+                parse_actor_location_rotation(data, data_line, title="Actors", t=t)
                 if debug:
                     validate(data)
 
