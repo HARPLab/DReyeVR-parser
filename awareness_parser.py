@@ -51,7 +51,10 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
     print()
     print(Answer)'''
     Noticed : Dict = {}
+    EverNoticed: Dict = {}
     FirstAppeared : Dict = {}
+    AllRendered : np.ndarray = []
+    WasInputCorrect: np.ndarray = []
     for i in range (FramesNum):
         ActorsNum = RenderedTotal[i]
         for Id in Ids[i]:
@@ -59,13 +62,19 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
                 FirstAppeared[Id] = i + 1
             if not (Id in Noticed):
                 #print(Id)
+                AllRendered.append(Id)
+                EverNoticed[Id] = False
                 Noticed[Id] = False
 
         if UserInput[i] > 0:
+            FoundCorrect = False
             for j in range(ActorsNum):
                 if not(Noticed[Ids[i][j]]) and (UserInput[i] & Answer[i][j]):
                     Noticed[Ids[i][j]] = True
+                    EverNoticed[Ids[i][j]] = True
+                    FoundCorrect = True
                     break
+            WasInputCorrect.append(FoundCorrect)
         
         print("Frame", i + 1)
         for Id in Ids[i]:
@@ -77,6 +86,21 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
         for Id in Ids[i - 1]:
             if not(Id in Ids[i]):
                 Noticed[id] = False
+    print()
+    print("All actors that were rendered at some point:")
+    for Id in AllRendered:
+        print(Id, end = ' ')
+    print()
+    print("Was actor ever noticed?")
+    for Id in AllRendered:
+        print(Id, ":", EverNoticed[Id])
+    print("Correctness per input:")
+    for el in WasInputCorrect:
+        print(el, end = ' ')
+    print()
+    
+    
+    
    
 
 if __name__ == "__main__":
