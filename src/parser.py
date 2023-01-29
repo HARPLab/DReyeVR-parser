@@ -109,7 +109,7 @@ def parse_custom_actor(
 def parse_actor_location_rotation(
     data: Dict[str, Any],
     data_line: str,
-    title: Optional[str] = "",
+    actors_key: str,
     t: Optional[int] = 0,
 ):
     Id: int = int(data_line[: data_line.find("Location")])
@@ -118,12 +118,14 @@ def parse_actor_location_rotation(
     open_1: int = close_0 + 2 + len("Rotation")  # always " Rotation "
     loc_data: tuple = eval(data_line[open_0:close_0])
     rot_data: tuple = eval(data_line[open_1:])
-    if Id not in data[title]:
-        data[title][Id] = {"Time": [], "Location": [], "Rotation": []}
-    data[title][Id]["Time"].append(t)
-    data[title][Id]["Location"].append(loc_data)
-    data[title][Id]["Rotation"].append(rot_data)
-
+    if len(data[actors_key]["Id"]) <= t:
+        data[actors_key]["Id"].append([])
+        data[actors_key]["Location"].append({})
+        data[actors_key]["Rotation"].append({})
+    data[actors_key]["Id"][t].append(Id)
+    data[actors_key]["Location"][t][Id] = loc_data
+    data[actors_key]["Rotation"][t][Id] = rot_data
+    
 
 def validate(data: Dict[str, Any], L: Optional[int] = None) -> None:
     # verify the data structure is reasonable
@@ -239,6 +241,9 @@ def parse_file(
 
     actors_key: str = "Actors"
     data[actors_key] = {}
+    data[actors_key]["Id"] = []
+    data[actors_key]["Location"] = []
+    data[actors_key]["Rotation"] = []
 
     with open(path, "r") as f:
         start_t: float = time.time()
@@ -273,13 +278,12 @@ def parse_file(
                 data_line: str = line.strip(Carla_Actor).strip("\n")
                 if "Location:" not in data_line or "Rotation" not in data_line:
                     continue  # don't care about state, light, animation, etc.
-                if "TimestampCarla" in data:
-                    t = data["TimestampCarla"][_no_title_key][-1]  # get carla time
-                else:
-                    t = 0
-                parse_actor_location_rotation(data, data_line, title="Actors", t=t)
-                if debug:
-                    validate(data)
+                
+                t = len(data["TimeElapsed"]) - 1 # get carla time
+                #print('!', t)
+               
+                parse_actor_location_rotation(data, data_line, actors_key, t=t)
+               
 
             # print status
             if i % 500 == 0:

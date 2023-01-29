@@ -29,6 +29,7 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
     Loc = []
     Vel = []
     idx = 0
+    RenderedTotal[-1] = 0
     for num in RenderedTotal: 
         Ids.append(AwarenessData["Id"][idx : idx + num])
         Answer.append(AwarenessData["Answer"][idx : idx + num])
@@ -81,28 +82,21 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
         print(el, end = ' ')
     print()
 
-    # Get actor rotation from the "Actors" field of the data dictionary
-    curr_idx : Dict = {}
-    for key in data["Actors"]:
-        curr_idx[key] = 0
+    # Get rotation for rendered actors from the "Actors" field of the data dictionary
     Rot = []
-
     for i in range(FramesNum):
-        Rot.append(np.array([list(data["Actors"][id]["Rotation"][curr_idx[id]]) for id in Ids[i]]))
-        for id in Ids[i]:
-            curr_idx[id] += 1
+        Rot.append(np.array([data["Actors"]["Rotation"][i][id] for id in Ids[i]]))
 
     # Combine all data with awareness data
     datafinal = data.copy()
-    del datafinal["Actors"]
 
     AwData : Dict = {}
     AwData["Rendered"] = Ids
     AwData["Answer"] = Answer
     AwData["UserInput"] = UserInput
-    AwData["Location"] = Loc
-    AwData["Velocity"] = Vel
-    AwData["Rotation"] = Rot
+    AwData["RenderedLocation"] = Loc
+    AwData["RenderedVelocity"] = Vel
+    AwData["RenderedRotation"] = Rot
     datafinal["AwarenessData"] = AwData
 
     # Convert to pandas dataframe
@@ -112,8 +106,8 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
     # Display the frame
     from IPython.display import display
     from tabulate import tabulate
-    # print(awareness_frame.keys())
-    # print(tabulate(awareness_frame, headers = 'keys', tablefmt = 'fancy_grid'))
+    print(awareness_frame.keys())
+    #print(tabulate(awareness_frame, headers = 'keys', tablefmt = 'fancy_grid'))
     
    
 
