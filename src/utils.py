@@ -110,7 +110,9 @@ def cleanup_data_line(data_line: str) -> str:
 def convert_to_list(data: Dict[str, np.ndarray or dict]) -> Dict[str, list or dict]:
     list_data = {}
     for k in data.keys():
-        if isinstance(data[k], dict):
+        if isinstance(data[k], list):
+            list_data[k] = data[k]
+        elif isinstance(data[k], dict):
             list_data[k] = convert_to_list(data[k])
         else:
             assert isinstance(data[k], np.ndarray)
@@ -252,8 +254,11 @@ def convert_to_df(data: Dict[str, Any]) -> pd.DataFrame:
     data = convert_to_list(data)
     data = flatten_dict(data)
     lens = [len(x) for x in data.values()]
-    assert min(lens) == max(lens)  # all lengths are equal!
-    # NOTE: pandas can't haneld high dimensional np arrays, so we just use lists
+    # all lengths are equal!
+    if not min(lens) == max(lens):
+        import ipdb; ipdb.set_trace()
+        
+    # NOTE: pandas can't handle high dimensional np arrays, so we just use lists
     df = pd.DataFrame.from_dict(data)
     print(f"created DReyeVR df in {time.time() - start_t:.3f}s")
     return df
@@ -370,3 +375,5 @@ def smooth_arr(arr, kernel_size=5):
     arr_convolved = np.convolve(arr, kernel, mode="same")
     assert arr_convolved.shape == arr.shape
     return arr_convolved
+
+

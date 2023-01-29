@@ -1,6 +1,6 @@
 from typing import Dict, Optional, List
 from src.parser import parse_file
-from src.utils import get_good_idxs, fill_gaps, smooth_arr, compute_YP
+from src.utils import get_good_idxs, fill_gaps, smooth_arr, compute_YP, convert_to_df, flatten_dict
 import numpy as np
 import argparse
 from src.visualizer import (
@@ -13,25 +13,10 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
 
     """parse the file"""
     data: Dict[str, np.ndarray or dict] = parse_file(filename)
-
-    # """convert to pandas df"""
-    # import pandas as pd
-    # # need to split along groups so all data lengths are the same
-    # data_groups = split_along_subgroup(data, ["CustomActor"])
-    # data_groups_df: List[pd.DataFrame] = [convert_to_df(x) for x in data_groups]
-
     # can also use data["TimestampCarla"] which is in simulator time
+    # Set helper data structures
     t: np.ndarray = data["TimeElapsed"]
     AwarenessData = data["AwarenessData"]
-    '''print(d)
-    print(len(d["RenderedTotal"]))
-    print(sum(d["RenderedTotal"]))
-    print(len(d["UserInput"]))
-    print(len(d["Id"]))
-    print(len(d["Answer"]))
-    print(len(d["Velocity"]))
-    print(t)'''
-
     RenderedTotal = AwarenessData["RenderedTotal"]
     UserInput = AwarenessData["UserInput"]
     FramesNum = len(RenderedTotal)
@@ -39,29 +24,31 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
         print("0 length recording, nothing to parse")
         return
 
-    Ids : np.ndarray = []
-    Answer : np.ndarray = []
+    Ids = []
+    Answer = []
+    Loc = []
+    Vel = []
     idx = 0
     for num in RenderedTotal: 
         Ids.append(AwarenessData["Id"][idx : idx + num])
         Answer.append(AwarenessData["Answer"][idx : idx + num])
+        Loc.append(AwarenessData["Location"][idx : idx + num])
+        Vel.append(AwarenessData["Velocity"][idx : idx + num])
         idx += num
     
-    '''print(Ids)
-    print()
-    print(Answer)'''
     Noticed : Dict = {}
     EverNoticed: Dict = {}
     FirstAppeared : Dict = {}
     AllRendered : np.ndarray = []
     WasInputCorrect: np.ndarray = []
+
+    # Parse the data
     for i in range (FramesNum):
         ActorsNum = RenderedTotal[i]
         for Id in Ids[i]:
             if i == 0 or not(Id in Ids[i - 1]):
                 FirstAppeared[Id] = i + 1
             if not (Id in Noticed):
-                #print(Id)
                 AllRendered.append(Id)
                 EverNoticed[Id] = False
                 Noticed[Id] = False
@@ -75,12 +62,7 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
                     FoundCorrect = True
                     break
             WasInputCorrect.append(FoundCorrect)
-        
-        print("Frame", i + 1)
-        for Id in Ids[i]:
-            print(Id, Noticed[Id])
-        print()
-
+    
         if i == 0:
             continue
         for Id in Ids[i - 1]:
@@ -98,8 +80,40 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
     for el in WasInputCorrect:
         print(el, end = ' ')
     print()
-    
-    
+
+    # Get actor rotation from the "Actors" field of the data dictionary
+    curr_idx : Dict = {}
+    for key in data["Actors"]:
+        curr_idx[key] = 0
+    Rot = []
+
+    for i in range(FramesNum):
+        Rot.append(np.array([list(data["Actors"][id]["Rotation"][curr_idx[id]]) for id in Ids[i]]))
+        for id in Ids[i]:
+            curr_idx[id] += 1
+
+    # Combine all data with awareness data
+    datafinal = data.copy()
+    del datafinal["Actors"]
+
+    AwData : Dict = {}
+    AwData["Rendered"] = Ids
+    AwData["Answer"] = Answer
+    AwData["UserInput"] = UserInput
+    AwData["Location"] = Loc
+    AwData["Velocity"] = Vel
+    AwData["Rotation"] = Rot
+    datafinal["AwarenessData"] = AwData
+
+    # Convert to pandas dataframe
+    import pandas as pd
+    awareness_frame = convert_to_df(datafinal)
+   
+    # Display the frame
+    from IPython.display import display
+    from tabulate import tabulate
+    # print(awareness_frame.keys())
+    # print(tabulate(awareness_frame, headers = 'keys', tablefmt = 'fancy_grid'))
     
    
 
