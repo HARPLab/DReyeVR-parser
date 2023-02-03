@@ -24,6 +24,9 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
         print("0 length recording, nothing to parse")
         return
 
+    VehicleType = 16
+    TypeBit = 16
+    Type = []
     Ids = []
     Answer = []
     Loc = []
@@ -36,6 +39,17 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
         Loc.append(AwarenessData["Location"][idx : idx + num])
         Vel.append(AwarenessData["Velocity"][idx : idx + num])
         idx += num
+    Type = []
+    TypeDict = {}
+    for i in range (FramesNum):
+        Type.append([])
+        for j in range(RenderedTotal[i]):
+            if Answer[i][j] & VehicleType:
+                Type[i].append("vehicle")
+                TypeDict[Ids[i][j]] = "vehicle"
+            else:
+                Type[i].append("walker")
+                TypeDict[Ids[i][j]] = "walker"
     
     Noticed : Dict = {}
     EverNoticed: Dict = {}
@@ -57,7 +71,7 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
         if UserInput[i] > 0:
             FoundCorrect = False
             for j in range(ActorsNum):
-                if not(Noticed[Ids[i][j]]) and (UserInput[i] & Answer[i][j]):
+                if not(Noticed[Ids[i][j]]) and (UserInput[i] & TypeBit == Answer[i][j] & TypeBit) and (UserInput[i] & Answer[i][j]):
                     Noticed[Ids[i][j]] = True
                     EverNoticed[Ids[i][j]] = True
                     FoundCorrect = True
@@ -72,7 +86,7 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
     print()
     print("All actors that were rendered at some point:")
     for Id in AllRendered:
-        print(Id, end = ' ')
+        print(Id, TypeDict[Id], end = '\n')
     print()
     print("Was actor ever noticed?")
     for Id in AllRendered:
@@ -92,6 +106,7 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
 
     AwData : Dict = {}
     AwData["Rendered"] = Ids
+    AwData["Type"] = Type
     AwData["Answer"] = Answer
     AwData["UserInput"] = UserInput
     AwData["RenderedLocation"] = Loc
