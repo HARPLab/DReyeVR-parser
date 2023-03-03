@@ -80,9 +80,9 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
     
         if i == 0:
             continue
-        for Id in Ids[i - 1]:
+        '''for Id in Ids[i - 1]:
             if not(Id in Ids[i]):
-                Noticed[id] = False
+                Noticed[id] = False'''
     print()
     print("All actors that were rendered at some point:")
     for Id in AllRendered:
