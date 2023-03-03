@@ -17,9 +17,9 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
     # Set helper data structures
     t: np.ndarray = data["TimeElapsed"]
     AwarenessData = data["AwarenessData"]
-    RenderedTotal = AwarenessData["RenderedTotal"]
+    VisibleTotal = AwarenessData["VisibleTotal"]
     UserInput = AwarenessData["UserInput"]
-    FramesNum = len(RenderedTotal)
+    FramesNum = len(VisibleTotal)
     if (FramesNum == 0):
         print("0 length recording, nothing to parse")
         return
@@ -32,8 +32,8 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
     Loc = []
     Vel = []
     idx = 0
-    RenderedTotal[-1] = 0
-    for num in RenderedTotal: 
+    VisibleTotal[-1] = 0
+    for num in VisibleTotal: 
         Ids.append(AwarenessData["Id"][idx : idx + num])
         Answer.append(AwarenessData["Answer"][idx : idx + num])
         Loc.append(AwarenessData["Location"][idx : idx + num])
@@ -43,7 +43,7 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
     TypeDict = {}
     for i in range (FramesNum):
         Type.append([])
-        for j in range(RenderedTotal[i]):
+        for j in range(VisibleTotal[i]):
             if Answer[i][j] & VehicleType:
                 Type[i].append("vehicle")
                 TypeDict[Ids[i][j]] = "vehicle"
@@ -54,17 +54,17 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
     Noticed : Dict = {}
     EverNoticed: Dict = {}
     FirstAppeared : Dict = {}
-    AllRendered : np.ndarray = []
+    AllVisible : np.ndarray = []
     WasInputCorrect: np.ndarray = []
 
     # Parse the data
     for i in range (FramesNum):
-        ActorsNum = RenderedTotal[i]
+        ActorsNum = VisibleTotal[i]
         for Id in Ids[i]:
             if i == 0 or not(Id in Ids[i - 1]):
                 FirstAppeared[Id] = i + 1
             if not (Id in Noticed):
-                AllRendered.append(Id)
+                AllVisible.append(Id)
                 EverNoticed[Id] = False
                 Noticed[Id] = False
 
@@ -84,19 +84,19 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
             if not(Id in Ids[i]):
                 Noticed[id] = False'''
     print()
-    print("All actors that were rendered at some point:")
-    for Id in AllRendered:
+    print("All actors that were visible at some point:")
+    for Id in AllVisible:
         print(Id, TypeDict[Id], end = '\n')
     print()
     print("Was actor ever noticed?")
-    for Id in AllRendered:
+    for Id in AllVisible:
         print(Id, ":", EverNoticed[Id])
     print("Correctness per input:")
     for el in WasInputCorrect:
         print(el, end = ' ')
     print()
 
-    # Get rotation for rendered actors from the "Actors" field of the data dictionary
+    # Get rotation for Visible actors from the "Actors" field of the data dictionary
     Rot = []
     for i in range(FramesNum):
         Rot.append(np.array([data["Actors"]["Rotation"][i][id] for id in Ids[i]]))
@@ -105,13 +105,13 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
     datafinal = data.copy()
 
     AwData : Dict = {}
-    AwData["Rendered"] = Ids
+    AwData["Visible"] = Ids
     AwData["Type"] = Type
     AwData["Answer"] = Answer
     AwData["UserInput"] = UserInput
-    AwData["RenderedLocation"] = Loc
-    AwData["RenderedVelocity"] = Vel
-    AwData["RenderedRotation"] = Rot
+    AwData["VisibleLocation"] = Loc
+    AwData["VisibleVelocity"] = Vel
+    AwData["VisibleRotation"] = Rot
     datafinal["AwarenessData"] = AwData
 
     # Convert to pandas dataframe
