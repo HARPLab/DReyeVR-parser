@@ -6,9 +6,20 @@ import argparse
 from src.visualizer import (
     set_results_dir,
 )
+import os
+import sys
+from PIL import Image
+
+def format_number(num):
+    res = str(num)
+    while len(res) < 6:
+        res = '0' + res
+    return res
+    
 
 
-def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
+
+def main(filename: str, images_dir: str, results_dir: str, vlines: Optional[List[float]] = None):
     set_results_dir(results_dir)
 
     """parse the file"""
@@ -57,6 +68,9 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
     AllVisible : np.ndarray = []
     WasInputCorrect: np.ndarray = []
 
+    ChangeToNoticed = [set() for i in range(FramesNum)]
+    ChangeToUnnoticed = [set() for i in range(FramesNum)]
+
     # Parse the data
     for i in range (FramesNum):
         ActorsNum = VisibleTotal[i]
@@ -73,13 +87,17 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
             for j in range(ActorsNum):
                 if not(Noticed[Ids[i][j]]) and (UserInput[i] & TypeBit == Answer[i][j] & TypeBit) and (UserInput[i] & Answer[i][j]):
                     Noticed[Ids[i][j]] = True
+                    #ChangedToNoticed[i].add(Ids[i][j])
                     EverNoticed[Ids[i][j]] = True
                     FoundCorrect = True
                     break
             WasInputCorrect.append(FoundCorrect)
-    
+        for Id in AllVisible:
+            if EverNoticed[Id]:
+                ChangeToNoticed[i].add(Id)
         if i == 0:
             continue
+
         '''for Id in Ids[i - 1]:
             if not(Id in Ids[i]):
                 Noticed[id] = False'''
@@ -96,34 +114,36 @@ def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
         print(el, end = ' ')
     print()
 
-    # Get rotation for Visible actors from the "Actors" field of the data dictionary
-    Rot = []
-    for i in range(FramesNum):
-        Rot.append(np.array([data["Actors"]["Rotation"][i][id] for id in Ids[i]]))
 
-    # Combine all data with awareness data
-    datafinal = data.copy()
+    for frame in range(FramesNum):
+        frame_str = format_number(frame + 1)
+        image_path = images_dir + '/' + frame_str + ".jpg"
+        print(image_path)
+        if not os.path.exists(image_path):
+            print("no image for frame " + str(frame + 1))
+            continue
+        img  = Image.open(image_path) 
+        pixels = img.load()
+        width, height = img.size
+        for i in range(width):
+            for j in range(height):
+                r, g, b = img.getpixel((i, j))
+                id = b * 256 + g
+                
+                if id in ChangeToNoticed[frame]:
+                    print(id)
+                    pixels[i, j] = (255, g, b)
+        
+        img.save(results_dir + '/' + frame_str, format="png")
+        
+        
 
-    AwData : Dict = {}
-    AwData["Visible"] = Ids
-    AwData["Type"] = Type
-    AwData["Answer"] = Answer
-    AwData["UserInput"] = UserInput
-    AwData["VisibleLocation"] = Loc
-    AwData["VisibleVelocity"] = Vel
-    AwData["VisibleRotation"] = Rot
-    datafinal["AwarenessData"] = AwData
 
-    # Convert to pandas dataframe
-    import pandas as pd
-    awareness_frame = convert_to_df(datafinal)
-   
-    # Display the frame
-    from IPython.display import display
-    from tabulate import tabulate
-    #print(awareness_frame.keys())
-    #print(tabulate(awareness_frame, headers = 'keys', tablefmt = 'fancy_grid'))
-    
+
+
+
+
+
    
 
 if __name__ == "__main__":
@@ -136,12 +156,21 @@ if __name__ == "__main__":
         help="path of the (human readable) recording file",
     )
     argparser.add_argument(
+        "-i",
+        "--images",
+        default="not entered",
+        type=str,
+        help="path to the folder with images",
+    )
+    argparser.add_argument(
         "-o",
         "--out",
         default="results",
         type=str,
         help="path of the results folder",
     )
+
+    
     args = argparser.parse_args()
 
-    main(args.file, args.out)
+    main(args.file, args.images, args.out)
