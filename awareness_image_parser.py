@@ -117,33 +117,42 @@ def main(filename: str, images_dir: str, results_dir: str, vlines: Optional[List
 
     for frame in range(FramesNum):
         frame_str = format_number(frame + 1)
-        image_path = images_dir + '/' + frame_str + ".jpg"
-        print(image_path)
-        if not os.path.exists(image_path):
-            print("no image for frame " + str(frame + 1))
+        instseg_image_path = images_dir + '/instance_segmentation_output/' + frame_str + ".jpg"
+        rgb_image_path = images_dir + '/rgb_output/' + frame_str + ".jpg"
+
+        #print(image_path)
+        if not os.path.exists(instseg_image_path):
+            print("no instance segmentation image for frame " + str(frame + 1))
             continue
-        img  = Image.open(image_path) 
-        pixels = img.load()
-        width, height = img.size
+        if not os.path.exists(rgb_image_path):
+            print("no rgb image for frame " + str(frame + 1))
+            continue
+        inst_img  = Image.open(instseg_image_path) 
+        rgb_img = Image.open(rgb_image_path)
+        inst_pixels = inst_img.load()
+        rgb_pixels = rgb_img.load()
+        width, height = inst_img.size
+        transp = 0.6
         for i in range(width):
             for j in range(height):
-                r, g, b = img.getpixel((i, j))
-                id = b * 256 + g
-                
-                if id in ChangeToNoticed[frame]:
-                    print(id)
-                    pixels[i, j] = (255, g, b)
-        
-        img.save(results_dir + '/' + frame_str, format="png")
-        
-        
+                ir, ig, ib = inst_img.getpixel((i, j))
+                id = ib * 256 + ig
 
+                rr, rg, rb = rgb_img.getpixel((i, j))
+                res_r, res_g, res_b = (rr * transp, rg * transp, rb * transp)
 
-
-
-
-
-
+                if id in TypeDict.keys():
+                    if TypeDict[id] == "vehicle" or TypeDict[id] == "walker":
+                        if id in ChangeToNoticed[frame]:
+                            print(id)
+                            res_r += (1 - transp) * 255
+                            res_g += (1 - transp) * ig
+                            res_b += (1 - transp) * ib
+                        else:
+                            res_g += (1 - transp) * ig
+                            res_b += (1 - transp) * ib
+                inst_pixels[i, j] = (int(res_r), int(res_b), int(res_g))
+        inst_img.save(results_dir + '/' + frame_str, format="png")
    
 
 if __name__ == "__main__":
