@@ -12,11 +12,11 @@ import numpy as np
 import argparse
 
 
-def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
+def main(filename: str, results_dir: str, force_reload: bool, vlines: Optional[List[float]] = None):
     set_results_dir(results_dir)
 
     """parse the file"""
-    data: Dict[str, np.ndarray or dict] = parse_file(filename)
+    data: Dict[str, np.ndarray or dict] = parse_file(filename, force_reload)
 
     # """convert to pandas df"""
     # import pandas as pd
@@ -518,7 +518,14 @@ if __name__ == "__main__":
         default="results",
         type=str,
         help="path of the results folder",
+    )    
+    argparser.add_argument(
+        "-r",
+        "--reload",
+        default=False,
+        type=bool,
+        help="force cache reload while reading file",
     )
     args = argparser.parse_args()
 
-    main(args.file, args.out)
+    main(args.file, args.out, args.reload)

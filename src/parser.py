@@ -5,8 +5,14 @@ import sys
 import pickle
 
 # allow us to import from this current directory
-parser_dir: str = "/".join(__file__.split("/")[:-1])
-sys.path.insert(1, parser_dir)
+# parser_dir: str = "/".join(__file__.split("/")[:-1])
+# sys.path.insert(1, parser_dir)
+
+# allow us to import from the directory this file is in
+parser_dir = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(parser_dir)
+
+
 
 from utils import (
     process_UE4_string_to_value,
@@ -250,7 +256,6 @@ def parse_file(
         for i, line in enumerate(f.readlines()):
             # remove leading spaces
             line = line.strip(" ")
-
             # get wall-clock time elapsed
             if line[: len(TimeElapsed)] == TimeElapsed:
                 # line is always in the form "Frame X at Y seconds\n"

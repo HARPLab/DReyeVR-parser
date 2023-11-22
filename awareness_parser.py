@@ -8,11 +8,11 @@ from src.visualizer import (
 )
 
 
-def main(filename: str, results_dir: str, vlines: Optional[List[float]] = None):
+def main(filename: str, results_dir: str, force_reload: bool, vlines: Optional[List[float]] = None):
     set_results_dir(results_dir)
 
     """parse the file"""
-    data: Dict[str, np.ndarray or dict] = parse_file(filename)
+    data: Dict[str, np.ndarray or dict] = parse_file(filename, force_reload)
     # can also use data["TimestampCarla"] which is in simulator time
     # Set helper data structures
     t: np.ndarray = data["TimeElapsed"]
@@ -142,6 +142,13 @@ if __name__ == "__main__":
         type=str,
         help="path of the results folder",
     )
+    argparser.add_argument(
+        "-r",
+        "--reload",
+        default=False,
+        type=bool,
+        help="force cache reload while reading file",
+    )
     args = argparser.parse_args()
 
-    main(args.file, args.out)
+    main(args.file, args.out, args.reload)
