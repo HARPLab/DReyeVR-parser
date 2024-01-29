@@ -123,6 +123,17 @@ def main(filename: str, results_dir: str, force_reload: bool, vlines: Optional[L
     from tabulate import tabulate
     #print(awareness_frame.keys())
     #print(tabulate(awareness_frame, headers = 'keys', tablefmt = 'fancy_grid'))
+
+    fname = filename.split("/")[-1]
+    fname = fname.split(".txt")[0]
+    txtf = fname + "-awdata.txt"
+    jsonf = fname + "-awdata.json"
+    with open('results/'+txtf, 'w') as f:
+        f.write(tabulate(awareness_frame, headers = 'keys', tablefmt = 'fancy_grid'))
+    
+    with open('results/'+jsonf, 'w') as f:
+        awareness_frame.to_json(f, orient = 'index')
+    return awareness_frame
     
    
 
