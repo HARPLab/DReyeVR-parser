@@ -14,27 +14,32 @@ import cv2
 import pandas as pd
 import configparser
 import numpy as np
+from scipy.stats import multivariate_normal
+from matplotlib import pyplot as plt
 from recorder_info_extracter import get_data_dict
+
 
 CARLA_PATH = "/home/srkhuran-local/CarlaDReyeVR/carla"
 import carla
 
+#Step 1: Run replay_instance_segm.py to get the rgb images and the instance segmentation images
+recording_file = "/home/srkhuran-local/.config/Epic/CarlaUE4/Saved/exp_nik-pilot_12_05_2023_17_00_59.rec"
+recorder_parse_file = "%s/PythonAPI/examples/exp_nik-pilot.txt" % CARLA_PATH
+#os.system("python %s/PythonAPI/examples/replay_instance_segm.py -f %s -parse %s" %(CARLA_PATH, recording_file, recorder_parse_file))
+
+
 def get_RGB(frame_num, recorder_filename):
-    #write this code
     directory_name = recorder_filename.split("/")[-1]
     directory_name = directory_name.split(".rec")[0]
     image_filename = "%s/PythonAPI/examples/%s/images/rgb_output/%.6d.jpg" % (CARLA_PATH, directory_name, frame_num)
-    #return filename, or the actual image .... ?
     rgb_image = cv2.imread(image_filename)
     return rgb_image
     
     
 def get_instance_segm(frame_num, recorder_filename):
-    #write this code
     directory_name = recorder_filename.split("/")[-1]
     directory_name = directory_name.split(".rec")[0]
     image_filename = "%s/PythonAPI/examples/%s/images/instance_segmentation_output/%.6d.jpg" % (CARLA_PATH, directory_name, frame_num)
-    #return filename, or the actual image .... ?
     instance_segm_image = cv2.imread(image_filename)
     return instance_segm_image
 
@@ -119,12 +124,36 @@ def world2pixels(focus_hit_pt, vehicle_transform, K, sensor_config):
     
     return pts_mid, pts_left, pts_right
 
-#Step 1: Run replay_instance_segm.py to get the rgb images and the instance segmentation images
-recording_file = "/home/srkhuran-local/.config/Epic/CarlaUE4/Saved/exp_nik-pilot_12_05_2023_17_00_59.rec"
-recorder_parse_file = "%s/PythonAPI/examples/exp_nik-pilot.txt" % CARLA_PATH
-#os.system("python %s/PythonAPI/examples/replay_instance_segm.py -f %s -parse %s" %(CARLA_PATH, recording_file, recorder_parse_file))
+def gaussian_contour_plot(gaze_image, fname, frame_num, gaze_points, sigma=1.0, contour_levels=3):
+    # Create a grid of coordinates
+    height, width = gaze_image.shape[:2]
+    y, x = np.mgrid[0:height, 0:width]
 
-frame_num = 2 #update this
+    composite_gaussian = np.zeros((height, width), dtype=float)
+    #composite_gaussian.reshape((height, width))
+
+    # Combine Gaussians centered at each point
+    for center_pixel in gaze_points:
+        mean = center_pixel
+        covariance_matrix = np.eye(2) * (sigma**2)
+        gaussian_distribution = multivariate_normal(mean=mean, cov=covariance_matrix)
+
+        positions = np.column_stack((x.ravel(), y.ravel()))
+        values = gaussian_distribution.pdf(positions)
+        gaussian_image = values.reshape(height, width)
+
+        composite_gaussian += gaussian_image
+
+    # Plot the original image and overlay the composite Gaussian contour plot
+    plt.imshow(gaze_image, cmap='gray')
+    contours = plt.contourf(x, y, composite_gaussian, levels=contour_levels, cmap='Reds', alpha=0.7)
+    
+    if os.path.exists("gaze_heatmap/%s" % fname) is False:
+        os.makedirs("gaze_heatmap/%s" % fname)
+    output_file_name_heat = "gaze_heatmap/%s/%s.jpg" % (fname, str(frame_num))
+    plt.savefig(output_file_name_heat)
+    plt.clf()
+
 
 def get_image_inputs(frame_num, recording_file, recorder_parse_file, recording_data_dict):
     print("Frame Number: ", frame_num)
@@ -134,6 +163,8 @@ def get_image_inputs(frame_num, recording_file, recorder_parse_file, recording_d
 
     #call get_instance_segm on specific frame number to obtain that particular image
     instance_segm_img = get_instance_segm(frame_num, recording_file)
+    #img = cv2.imread(instance_segm_img)
+    #print(img)
     print("Got Instance Segmentation Image.")
     
     #Run awareness_parser
@@ -180,13 +211,14 @@ def get_image_inputs(frame_num, recording_file, recorder_parse_file, recording_d
     [0, 0, 1]])
     
     focus_hit_pt = recording_data_dict[frame_num]["FocusInfo"]["HitPoint"]
+    focus_hit_pt_scaled = np.array(focus_hit_pt.squeeze())/100
     loc = recording_data_dict[frame_num]["EgoVariables"]["VehicleLoc"]
     rot = recording_data_dict[frame_num]["EgoVariables"]["VehicleRot"]
     vehicle_loc = carla.Location(*(loc.squeeze()))/100
     vehicle_rot = carla.Rotation(*(rot.squeeze()))
     vehicle_transform = carla.Transform(location=vehicle_loc, rotation=vehicle_rot)
 
-    pts2d_mid, pts2d_left, pts2d_right = world2pixels(focus_hit_pt, vehicle_transform, K, sensor_config)
+    pts2d_mid, pts2d_left, pts2d_right = world2pixels(focus_hit_pt_scaled, vehicle_transform, K, sensor_config)
     #print(pts2d_mid)
     #print(rgb_img.shape)
 
@@ -196,6 +228,7 @@ def get_image_inputs(frame_num, recording_file, recorder_parse_file, recording_d
     #cv2.waitKey(0) 
 
     #Plot past 15 frames
+    heat_points2 = [pts2d_mid]
     heatmap_points = []
     if frame_num <= 16:
         end_point = frame_num
@@ -204,24 +237,33 @@ def get_image_inputs(frame_num, recording_file, recorder_parse_file, recording_d
     for i in range(1, end_point):
         frame = frame_num - i
         focus_hit_pt_i = recording_data_dict[frame]["FocusInfo"]["HitPoint"]
+        focus_hit_pt_i_scaled = np.array(focus_hit_pt_i.squeeze())/100
         loc = recording_data_dict[frame]["EgoVariables"]["VehicleLoc"]
         rot = recording_data_dict[frame]["EgoVariables"]["VehicleRot"]
         vehicle_loc_i = carla.Location(*(loc.squeeze()))/100
         vehicle_rot_i = carla.Rotation(*(rot.squeeze()))
         vehicle_transform = carla.Transform(location=vehicle_loc_i, rotation=vehicle_rot_i)
 
-        pts2d_mid, pts2d_left, pts2d_right = world2pixels(focus_hit_pt_i, vehicle_transform, K, sensor_config)
+        pts2d_mid, pts2d_left, pts2d_right = world2pixels(focus_hit_pt_i_scaled, vehicle_transform, K, sensor_config)
         heatmap_points.append(pts2d_mid)
+        heat_points2.append(pts2d_mid)
     #print(heatmap_points)
+    
 
     for p in heatmap_points:
         cv2.circle(image, p, radius=3, color=(255, 0, 0), thickness=-1)
     #cv2.imshow("RGB Gaze Heatmap",image)
     #cv2.waitKey(0)
-    if os.path.exists("gaze_heatmap/%s" % fname) is False:
-        os.makedirs("gaze_heatmap/%s" % fname)
-    output_file_name = "gaze_heatmap/%s/%s.jpg" % (fname, str(frame_num))
+    if os.path.exists("gaze_history/%s" % fname) is False:
+        os.makedirs("gaze_history/%s" % fname)
+    output_file_name = "gaze_history/%s/%s.jpg" % (fname, str(frame_num))
     cv2.imwrite(output_file_name, image)
+    
+    gaussian_contour_plot(image, fname, frame_num, heat_points2, sigma=40)
+    
+    #plt.show()
+    
+    return image, rgb_img, instance_segm_img
     
 
 def get_all_images(recorder_parse_file):
@@ -232,9 +274,9 @@ def get_all_images(recorder_parse_file):
         if f > 1:
             get_image_inputs(f, recording_file, recorder_parse_file, recording_data_dict)
     
-#recording_data_dict = get_data_dict(recorder_parse_file)
+recording_data_dict = get_data_dict(recorder_parse_file)
 #get_image_inputs(frame_num, recording_file, recorder_parse_file, recording_data_dict)
 get_all_images(recorder_parse_file)
 
-    
+#get_image_inputs(3, recording_file, recorder_parse_file, recording_data_dict)
     

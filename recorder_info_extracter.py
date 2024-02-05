@@ -46,7 +46,7 @@ def get_data_dict(file_path):
                     location_x = float(coords[0].split("=")[1])
                     location_y = float(coords[1].split("=")[1])
                     location_z = float(coords[2].split("=")[1])
-                    gaze_coords = (location_x, location_y, location_z)
+                    gaze_coords = np.asarray([location_x, location_y, location_z])
                     focus_dict["HitPoint"] = gaze_coords
             frame_dict["FocusInfo"] = focus_dict
         if "EgoVariables" in line:
