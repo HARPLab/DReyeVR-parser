@@ -14,32 +14,37 @@ import cv2
 import pandas as pd
 import configparser
 import numpy as np
+
+import argparse
+
+import carla
 from scipy.stats import multivariate_normal
 from matplotlib import pyplot as plt
 from recorder_info_extracter import get_data_dict
 
 
-CARLA_PATH = "/home/srkhuran-local/CarlaDReyeVR/carla"
-import carla
+#CARLA_PATH = "/home/srkhuran-local/CarlaDReyeVR/carla"
 
 #Step 1: Run replay_instance_segm.py to get the rgb images and the instance segmentation images
-recording_file = "/home/srkhuran-local/.config/Epic/CarlaUE4/Saved/exp_nik-pilot_12_05_2023_17_00_59.rec"
-recorder_parse_file = "%s/PythonAPI/examples/exp_nik-pilot.txt" % CARLA_PATH
+#recording_file = "/home/srkhuran-local/CarlaDReyeVR/DReyeVR-parser/recording_files/exp_sud_21_02_02_2024_09_33_57.rec"
+#recorder_parse_file = "%s/PythonAPI/examples/exp_sud_21_SA.txt" % CARLA_PATH
 #os.system("python %s/PythonAPI/examples/replay_instance_segm.py -f %s -parse %s" %(CARLA_PATH, recording_file, recorder_parse_file))
 
 
-def get_RGB(frame_num, recorder_filename):
-    directory_name = recorder_filename.split("/")[-1]
-    directory_name = directory_name.split(".rec")[0]
-    image_filename = "%s/PythonAPI/examples/%s/images/rgb_output/%.6d.jpg" % (CARLA_PATH, directory_name, frame_num)
+def get_RGB(frame_num, images_dir):
+    #directory_name = os.path.basename(recorder_filename)
+    #directory_name = os.path.splitext(directory_name)[0]
+    #image_filename = "%s/PythonAPI/examples/%s/images/rgb_output/%.6d.jpg" % (CARLA_PATH, directory_name, frame_num)
+    image_filename = "%s/rgb_output/%.6d.jpg" % (images_dir, frame_num)
     rgb_image = cv2.imread(image_filename)
     return rgb_image
     
     
-def get_instance_segm(frame_num, recorder_filename):
-    directory_name = recorder_filename.split("/")[-1]
-    directory_name = directory_name.split(".rec")[0]
-    image_filename = "%s/PythonAPI/examples/%s/images/instance_segmentation_output/%.6d.jpg" % (CARLA_PATH, directory_name, frame_num)
+def get_instance_segm(frame_num, images_dir):
+    #directory_name = os.path.basename(recorder_filename)
+    #directory_name = os.path.splitext(directory_name)[0]
+    #image_filename = "%s/PythonAPI/examples/%s/images/instance_segmentation_output/%.6d.jpg" % (CARLA_PATH, directory_name, frame_num)
+    image_filename = "%s/instance_segmentation_output/%.6d.jpg" % (images_dir, frame_num)
     instance_segm_image = cv2.imread(image_filename)
     return instance_segm_image
 
@@ -155,25 +160,27 @@ def gaussian_contour_plot(gaze_image, fname, frame_num, gaze_points, sigma=1.0, 
     plt.clf()
 
 
-def get_image_inputs(frame_num, recording_file, recorder_parse_file, recording_data_dict):
+def get_image_inputs(frame_num, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config):
     print("Frame Number: ", frame_num)
     #call get_RGB on specific frame number to obtain that particular image
-    rgb_img = get_RGB(frame_num, recording_file) 
+    rgb_img = get_RGB(frame_num, images_dir) 
     print("Got RGB Image.")
 
     #call get_instance_segm on specific frame number to obtain that particular image
-    instance_segm_img = get_instance_segm(frame_num, recording_file)
+    instance_segm_img = get_instance_segm(frame_num, images_dir)
     #img = cv2.imread(instance_segm_img)
     #print(img)
     print("Got Instance Segmentation Image.")
     
     #Run awareness_parser
-    #os.system("python awareness_parser.py -f " + recorder_parse_file)
-    fname = recorder_parse_file.split("/")[-1]
-    fname = fname.split(".txt")[0]
-    awareness_data_file_name = fname + "-awdata.json"
-    awareness_data_file = "results/%s" % awareness_data_file_name
-    awareness_df = pd.read_json(awareness_data_file, orient='index')
+    # os.system("python awareness_parser.py -f " + recorder_parse_file)
+    #fname = recorder_parse_file.split("/")[-1]
+    #fname = fname.split(".txt")[0]
+    fname = os.path.basename(recorder_parse_file)
+    fname = os.path.splitext(fname)[0]
+    #awareness_data_file_name = fname + "-awdata.json"
+    #awareness_data_file = "results/%s" % awareness_data_file_name
+    awareness_df = pd.read_json(awareness_parse_file, orient='index')
     
     #get SA Label from awareness_frame
     aw_visible = awareness_df["AwarenessData_Visible"][frame_num]
@@ -185,8 +192,6 @@ def get_image_inputs(frame_num, recording_file, recorder_parse_file, recording_d
         sa_label = get_label(user_input, aw_visible, aw_answer)
     print("Situational Awareness Label: ", sa_label)
     
-    sensor_config = configparser.ConfigParser()
-    sensor_config.read('sensor_config.ini')
 
     FOV = int(sensor_config['rgb']['fov'])
     w = int(sensor_config['rgb']['width'])
@@ -266,17 +271,56 @@ def get_image_inputs(frame_num, recording_file, recorder_parse_file, recording_d
     return image, rgb_img, instance_segm_img
     
 
-def get_all_images(recorder_parse_file):
+def get_all_images(recorder_parse_file, images_dir, awareness_parse_file, sensor_config):
+    # run awareness parser since we later depend on it
+    #os.system("python awareness_parser.py -f " + recorder_parse_file)
     #Construct dictionary containing necessary data per frame for the focus hit points and vehicle location/orientation
     recording_data_dict = get_data_dict(recorder_parse_file)
     #print(recording_data_dict.keys())
     for f in recording_data_dict.keys():
         if f > 1:
-            get_image_inputs(f, recording_file, recorder_parse_file, recording_data_dict)
+            #get_image_inputs(f, recording_file, recorder_parse_file, recording_data_dict)
+            get_image_inputs(f, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config)
     
-recording_data_dict = get_data_dict(recorder_parse_file)
+#recording_data_dict = get_data_dict(recorder_parse_file)
 #get_image_inputs(frame_num, recording_file, recorder_parse_file, recording_data_dict)
-get_all_images(recorder_parse_file)
+#get_all_images(recorder_parse_file)
 
 #get_image_inputs(3, recording_file, recorder_parse_file, recording_data_dict)
+
+def main():
+
+    argparser = argparse.ArgumentParser(
+        description=__doc__)
+    argparser.add_argument(
+        '-a', '--aw-parse-file',
+        metavar='A',
+        help='parse json file outputted by awareness parser')
+    argparser.add_argument(
+        '-r', '--rec-parse-file',
+        metavar='R',
+        help='txt file from show recorder file nfo output')
+    argparser.add_argument(
+        '-i', '--images_dir',
+        metavar='I',
+        help='images directory, should have folder of rgb and instance segmentation images')
+    argparser.add_argument(
+        '-s', '--sensor-config',
+        metavar='S',
+        help='sensor config')
+    args = argparser.parse_args()
     
+    sensor_config = configparser.ConfigParser()
+    sensor_config.read('sensor_config.ini')
+    
+    get_all_images(args.rec_parse_file, args.images_dir, args.aw_parse_file, sensor_config)
+    
+
+if __name__ == '__main__':
+
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        print('\ndone.')
