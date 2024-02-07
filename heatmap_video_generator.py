@@ -28,8 +28,6 @@ def main():
     
     image_folder = args.gaze_history_folder
     heat_image_folder = args.gaze_heatmap_folder
-    #video1_name = 'exp_nik-pilot-video-gaze_history.avi'
-    #video2_name = 'exp_nik-pilot-video-gaze_heatmap.avi'
     video1_name = args.gaze_history_output
     video2_name = args.gaze_heatmap_output
 
