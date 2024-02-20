@@ -2,3 +2,7 @@ __pycache__
 results
 cache
 .vscode/launch.json
+
+gaze_h*/
+recording_files
+*.avi

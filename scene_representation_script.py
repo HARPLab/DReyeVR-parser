@@ -22,15 +22,21 @@ from scipy.stats import multivariate_normal
 from matplotlib import pyplot as plt
 from recorder_info_extracter import get_data_dict
 
+import multiprocessing
+
 
 def get_RGB(frame_num, images_dir):
-    image_filename = "%s/rgb_output/%.6d.jpg" % (images_dir, frame_num)
+    image_filename = "%s/rgb_output/%.6d.png" % (images_dir, frame_num)
+    if not os.path.exists(image_filename):
+        print(image_filename)
+        raise FileNotFoundError
+    
     rgb_image = cv2.imread(image_filename)
     return rgb_image
     
     
 def get_instance_segm(frame_num, images_dir):
-    image_filename = "%s/instance_segmentation_output/%.6d.jpg" % (images_dir, frame_num)
+    image_filename = "%s/instance_segmentation_output/%.6d.png" % (images_dir, frame_num)
     instance_segm_image = cv2.imread(image_filename)
     return instance_segm_image
 
@@ -201,7 +207,7 @@ def get_image_inputs(frame_num, recorder_parse_file, recording_data_dict, images
     vehicle_rot = carla.Rotation(*(rot.squeeze()))
     vehicle_transform = carla.Transform(location=vehicle_loc, rotation=vehicle_rot)
 
-    pts2d_mid, pts2d_left, pts2d_right = world2pixels(focus_hit_pt_scaled, vehicle_transform, K, sensor_config)
+    pts2d_mid, _, _ = world2pixels(focus_hit_pt_scaled, vehicle_transform, K, sensor_config)
 
     #Plot the converted gaze coordinate onto the rgb image coordinate space
     image = cv2.circle(rgb_img, pts2d_mid, radius=10, color=(255, 0, 255), thickness=-1)
@@ -238,15 +244,153 @@ def get_image_inputs(frame_num, recorder_parse_file, recording_data_dict, images
     gaussian_contour_plot(image, fname, frame_num, heat_points2, sigma=40)
     
     return image, rgb_img, instance_segm_img
+
+
+def overlay_gaze_and_buttons(frame_num, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config):
+    rgb_frame_delay = 30
+    print("Frame Number: ", frame_num)
+    #call get_RGB on specific frame number to obtain that particular image
+    try:
+        rgb_img = get_RGB(frame_num+rgb_frame_delay, images_dir)         
+        print("Got RGB Image.")
+    except FileNotFoundError:
+        return        
+
+    fname = os.path.basename(recorder_parse_file)
+    fname = os.path.splitext(fname)[0]
+
+    awareness_df = pd.read_json(awareness_parse_file, orient='index')
     
+    #get SA Label from awareness_frame
+    aw_visible = awareness_df["AwarenessData_Visible"][frame_num]
+    user_input = awareness_df["AwarenessData_UserInput"][frame_num]
+    aw_answer = awareness_df["AwarenessData_Answer"][frame_num]
+    if user_input == 0:
+        sa_label = None
+    else:
+        # sa_label = get_label(user_input, aw_visible, aw_answer)
+        # print("Situational Awareness Label: ", sa_label)    
+            
+        # Get and overlay button press
+        if user_input // 16 == 1:
+            color = (0, 255, 0)
+            # Green is for vehicles
+        else:
+            color = (0, 0, 255)
+            # red is for pedestrians
+
+        if user_input%16 == 1:
+            pt1 = (125, 100)
+            pt2 = (100, 125)
+            pt3 = (150, 125)
+            
+        elif user_input%16 == 2:
+            pt1 = (125, 100)
+            pt2 = (150, 125)
+            pt3 = (125, 150)
+
+        elif user_input%16 == 4:
+            pt1 = (100, 125)
+            pt2 = (150, 125)
+            pt3 = (125, 150)
+
+        elif user_input%16 == 8:
+            pt1 = (125, 100)
+            pt2 = (100, 125)
+            pt3 = (125, 150)
+        
+        # print(color, user_input)
+        triangle_cnt = np.array( [pt1, pt2, pt3] )
+        cv2.drawContours(rgb_img, [triangle_cnt], 0, color, -1)    
+
+    # get gaze 3d pt and map to pixels
+    FOV = int(sensor_config['rgb']['fov'])
+    w = int(sensor_config['rgb']['width'])
+    h = int(sensor_config['rgb']['height'])
+    F = w / (2 * np.tan(FOV * np.pi / 360))
+
+    cam_info = {
+        'F': F,
+        'map_size' : 256,
+        'pixels_per_world' : 5.5,
+        'w' : w,
+        'h' : h,
+        'fy' : F,
+        'fx' : 1.0 * F,
+        'hack' : 0.4,
+        'cam_height' : sensor_config['rgb']['z'],
+    }
+
+    K = np.array([
+    [cam_info['fx'], 0, cam_info['w']/2],
+    [0, cam_info['fy'], cam_info['h']/2],
+    [0, 0, 1]])
+    
+    focus_hit_pt = recording_data_dict[frame_num]["FocusInfo"]["HitPoint"]
+    focus_hit_pt_scaled = np.array(focus_hit_pt.squeeze())/100
+    loc = recording_data_dict[frame_num]["EgoVariables"]["VehicleLoc"]
+    rot = recording_data_dict[frame_num]["EgoVariables"]["VehicleRot"]
+    vehicle_loc = carla.Location(*(loc.squeeze()))/100
+    vehicle_rot = carla.Rotation(*(rot.squeeze()))
+    vehicle_transform = carla.Transform(location=vehicle_loc, rotation=vehicle_rot)
+
+    pts2d_mid, _, _ = world2pixels(focus_hit_pt_scaled, vehicle_transform, K, sensor_config)
+
+    # Plot the converted gaze coordinate onto the rgb image coordinate space
+    image = cv2.circle(rgb_img, pts2d_mid, radius=10, color=(255, 0, 255), thickness=-1)
+
+    # Plot past 15 frames
+    heat_points2 = [pts2d_mid]
+    heatmap_points = []
+    if frame_num <= 16:
+        end_point = frame_num
+    else:
+        end_point = 16
+    for i in range(1, end_point):
+        frame = frame_num - i
+        focus_hit_pt_i = recording_data_dict[frame]["FocusInfo"]["HitPoint"]
+        focus_hit_pt_i_scaled = np.array(focus_hit_pt_i.squeeze())/100
+        loc = recording_data_dict[frame]["EgoVariables"]["VehicleLoc"]
+        rot = recording_data_dict[frame]["EgoVariables"]["VehicleRot"]
+        vehicle_loc_i = carla.Location(*(loc.squeeze()))/100
+        vehicle_rot_i = carla.Rotation(*(rot.squeeze()))
+        vehicle_transform = carla.Transform(location=vehicle_loc_i, rotation=vehicle_rot_i)
+
+        pts2d_mid, pts2d_left, pts2d_right = world2pixels(focus_hit_pt_i_scaled, vehicle_transform, K, sensor_config)
+        heatmap_points.append(pts2d_mid)
+        heat_points2.append(pts2d_mid)
+    
+    for p in heatmap_points:
+        cv2.circle(image, p, radius=3, color=(255, 0, 0), thickness=-1)
+    
+    overlay_out_dir = "gaze_history/%s" % fname
+    if os.path.exists(overlay_out_dir) is False:
+        os.makedirs(overlay_out_dir)
+    output_file_name = "%s/%s.jpg" % (overlay_out_dir, str(frame_num))
+    cv2.imwrite(output_file_name, image)
+    
+    gaussian_contour_plot(image, fname, frame_num, heat_points2, sigma=40)
+    
+    return image, rgb_img
+    
+
+
+def overlay_gaze_and_buttons_wrapper(args):
+    f, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config = args
+    overlay_gaze_and_buttons(f, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config)
 
 def get_all_images(recorder_parse_file, images_dir, awareness_parse_file, sensor_config):
     #Construct dictionary containing necessary data per frame for the focus hit points and vehicle location/orientation
     recording_data_dict = get_data_dict(recorder_parse_file)
 
-    for f in recording_data_dict.keys():
-        if f > 1:
-            get_image_inputs(f, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config)
+    # for f in recording_data_dict.keys():
+    #     if f > 1:
+    #         # get_image_inputs(f, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config)
+    #         overlay_gaze_and_buttons(f, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config)
+    args_list = [(f, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config) for f in range(244, max(recording_data_dict.keys()))]
+    with multiprocessing.Pool(processes=20) as pool:
+        pool.map(overlay_gaze_and_buttons_wrapper, args_list)
+        
     
 
 def main():
@@ -272,7 +416,7 @@ def main():
     args = argparser.parse_args()
     
     sensor_config = configparser.ConfigParser()
-    sensor_config.read('sensor_config.ini')
+    sensor_config.read(args.sensor_config)
     
     get_all_images(args.rec_parse_file, args.images_dir, args.aw_parse_file, sensor_config)
     

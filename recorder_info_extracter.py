@@ -3,6 +3,8 @@ import numpy as np
 
 #file_path = "/home/srkhuran-local/CarlaDReyeVR/carla/PythonAPI/examples/exp_nik-pilot.txt"
 def get_data_dict(file_path):
+   
+
     with open(file_path) as f:
         lines = f.readlines()
 
@@ -17,7 +19,7 @@ def get_data_dict(file_path):
             splitstr = subStr.split(" ")
             frame_num = int(splitstr[0])
             frame_dict = {}
-        if "Create " and "dreyevr_vehicle" in line:
+        if "Create " and "vehicle" in line:
             splitstr = line.split(" ")
             vehicle_id = int(splitstr[2][:-1])
             vehicleIds.append(vehicle_id)
