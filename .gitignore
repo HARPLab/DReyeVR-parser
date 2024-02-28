@@ -6,3 +6,6 @@ cache
 gaze_h*/
 recording_files
 *.avi
+*.jpg
+*.txt
+*.mp4
