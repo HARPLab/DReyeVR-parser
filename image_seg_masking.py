@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import carla
 import configparser
+import argparse
 from recorder_info_extracter import get_data_dict
 from PIL import Image
 import matplotlib.pyplot as plt
@@ -236,6 +237,31 @@ def get_instseg_id_offset(images_dir, sensor_config, awareness_df):
 
     return offset
 
+def get_full_label_mask(inst_img_path, id_list, offset, aw_visible,aw_answer, user_input, type_bit=16):
+    inst_img  = Image.open(inst_img_path) 
+    width, height = inst_img.size
+    mask = np.zeros((height, width), dtype=np.uint8)
+    #mask = np.zeros((width, height))
+    raw_img = np.array(inst_img)
+    b = raw_img[:, :, 2]
+    g = raw_img[:, :, 1]
+    # Calculate the sum of b*256 + g
+    sum_bg = (b * 256) + g
+    
+    for id in id_list:
+        run_id = id - offset
+        id_idx = aw_visible.index(id)
+        label = False
+        if (user_input & type_bit == aw_answer[id_idx] & type_bit) and (user_input & aw_answer[id_idx]):
+            label = True
+        if label == True:
+            # Create a mask where sum_bg is equal to target_value
+            mask[sum_bg==run_id] = 100
+        else:
+            mask[sum_bg==run_id] = 200
+    
+    return mask
+    
 
 def get_label_mask(id, instance_mask_file, aw_visible, aw_answer, user_input, type_bit=16):
     id_idx = aw_visible.index(id)
@@ -267,7 +293,7 @@ def get_instance_seg_mask(inst_img_path, rgb_img_path, id):
     width, height = inst_img.size
     pixels_list = []
     vals = []
-    mask = np.zeros_like(inst_img, dtype=np.uint8)
+    mask = np.zeros((width, height), dtype=np.uint8)
     #mask = np.zeros((width, height))
     raw_img = np.array(inst_img)
     b = raw_img[:, :, 2]
@@ -276,8 +302,8 @@ def get_instance_seg_mask(inst_img_path, rgb_img_path, id):
     sum_bg = (b * 256) + g
     #print(sum_bg)
     # Create a mask where sum_bg is equal to target_value
-    mask[sum_bg== id] =  [255, 255, 255, 255]
-    mask[sum_bg != id] = [0, 0, 0, 255]
+    mask[sum_bg== id] =  255
+    mask[sum_bg != id] = 0
 
     # # Display the image
     # cv2.imshow("Image", rgb)
@@ -285,28 +311,32 @@ def get_instance_seg_mask(inst_img_path, rgb_img_path, id):
     
     return mask
 
-def get_all_instance_segmentation_images(rec_parse_file, images_dir, awareness_df, sensor_config_file):
+def get_all_instance_segmentation_images( images_dir, awareness_df, sensor_config_file):
     
     if os.path.exists("%s/offset.txt" % images_dir):
         with open("%s/offset.txt" % images_dir, 'r') as file:
             offset = int(file.read())
     else:
-        #recording_data_dict = get_data_dict(rec_parse_file)
         sensor_config = configparser.ConfigParser()
         sensor_config.read(sensor_config_file)
 
         offset = get_instseg_id_offset(images_dir, sensor_config, awareness_df)
     print("Offset value: ", offset)
 
-    # for frame_num in range(1, len(awareness_df)):
-    #     print(frame_num)
-    #     id_list = awareness_df["AwarenessData_Visible"][frame_num]
-    #     user_input = awareness_df["AwarenessData_UserInput"][frame_num]
-    #     aw_answer = awareness_df["AwarenessData_Answer"][frame_num]
-    #     inst_img = "%s/instance_segmentation_output/%.6d.png" % (images_dir, frame_num+rgb_frame_delay)
-    #     rgb_img = "%s/rgb_output/%.6d.png" % (images_dir, frame_num+rgb_frame_delay)
-    #     if not os.path.exists(inst_img) and not os.path.exists(rgb_img):
-    #         continue
+    for frame_num in range(1, len(awareness_df)):
+        print(frame_num)
+        id_list = awareness_df["AwarenessData_Visible"][frame_num]
+        aw_visible = awareness_df["AwarenessData_Visible"][frame_num]
+        user_input = awareness_df["AwarenessData_UserInput"][frame_num]
+        aw_answer = awareness_df["AwarenessData_Answer"][frame_num]
+        inst_img = "%s/instance_segmentation_output/%.6d.png" % (images_dir, frame_num+rgb_frame_delay)
+        rgb_img = "%s/rgb_output/%.6d.png" % (images_dir, frame_num+rgb_frame_delay)
+        if not os.path.exists(inst_img) and not os.path.exists(rgb_img):
+            continue
+        full_label_mask = get_full_label_mask(inst_img, id_list, offset, aw_visible, aw_answer, user_input)
+        mask_img = Image.fromarray(full_label_mask)
+        mask_name = "%s/full_label_masks/%.6d.png" % (images_dir, frame_num+rgb_frame_delay)
+        mask_img.save(mask_name)
         
         
     #     for id in id_list:
@@ -320,19 +350,66 @@ def get_all_instance_segmentation_images(rec_parse_file, images_dir, awareness_d
     #         label_name = "%s/label_masks/%.6d_%d.png" % (images_dir, frame_num+rgb_frame_delay, id)
     #         label_mask_img.save(label_name)
 
+def produce_offset_txt(images_dir, sensor_config, awareness_df):
+    if os.path.exists("%s/offset.txt" % images_dir):
+        with open("%s/offset.txt" % images_dir, 'r') as file:
+            offset = int(file.read())
+    else:
+        sensor_config = configparser.ConfigParser()
+        sensor_config.read(sensor_config_file)
+
+        offset = get_instseg_id_offset(images_dir, sensor_config, awareness_df)
+
+    print("Offset value: ", offset)
+
+
+
+
 if __name__ =="__main__":
+    
+    argparser = argparse.ArgumentParser(
+        description=__doc__) 
+    argparser.add_argument(
+        '-config', '--sensor-config',
+        default = '/home/srkhuran-local/CarlaDReyeVR/carla/PythonAPI/examples/sensor_config.ini',
+        help = "sensor configuration deatils for camera orientation"
+    )
+    argparser.add_argument(
+        '--img-dir',        
+        default="/home/srkhuran-local/CarlaDReyeVR/carla/PythonAPI/examples/exp_abd-54_02_13_2024_10_31_55/images",
+        help='directory where images are stored (rgb, instance segmentation, etc.)'
+    )
+    argparser.add_argument(
+        '-aw', '--awareness-data',
+        default="/home/srkhuran-local/CarlaDReyeVR/DReyeVR-parser/results/exp_abd_54-awdata.json",
+        help = "awareness data frame in json form"
+    )
+    argparser.add_argument(
+        '-op', '--operation-mode',
+        default="offset",
+    )
+    args = argparser.parse_args()
+    
+    sensor_config_file = args.sensor_config
+    # "/home/srkhuran-local/CarlaDReyeVR/carla/PythonAPI/examples/sensor_config.ini"
+
     # awareness_parse_file = "/home/srkhuran-local/CarlaDReyeVR/DReyeVR-parser/results/ines_51-awdata.json"
-    # rec_parse_file = "/home/srkhuran-local/CarlaDReyeVR/DReyeVR-parser/recording_files/exp_ines_51.txt"
     # images_dir = "/home/srkhuran-local/CarlaDReyeVR/carla/PythonAPI/examples/exp_ines-51_02_13_2024_16_11_13/images"
 
-    awareness_parse_file = "/home/srkhuran-local/CarlaDReyeVR/DReyeVR-parser/results/jd_51-awdata.json"
-    rec_parse_file = "/home/srkhuran-local/CarlaDReyeVR/DReyeVR-parser/recording_files/jd_51.txt"
-    images_dir = "/home/srkhuran-local/CarlaDReyeVR/carla/PythonAPI/examples/exp_jd_51_02_16_2024_14_21_48/images"
+    # awareness_parse_file = "/home/srkhuran-local/CarlaDReyeVR/DReyeVR-parser/results/jd_51-awdata.json"
+    # images_dir = "/home/srkhuran-local/CarlaDReyeVR/carla/PythonAPI/examples/exp_jd_51_02_16_2024_14_21_48/images"
+  
+    # awareness_parse_file = "/home/srkhuran-local/CarlaDReyeVR/DReyeVR-parser/results/exp_allan_51-awdata.json"
+    # images_dir = "/home/srkhuran-local/CarlaDReyeVR/carla/PythonAPI/examples/exp_allan-51_02_20_2024_17_21_58/images"
 
-    sensor_config_file = "/home/srkhuran-local/CarlaDReyeVR/carla/PythonAPI/examples/sensor_config.ini"
-    #images_dir = "/home/srkhuran-local/CarlaDReyeVR/carla/PythonAPI/examples/exp_nik-pilot_12_05_2023_17_00_59/images"
-    
+    awareness_parse_file = args.awareness_data
+    # "/home/srkhuran-local/CarlaDReyeVR/DReyeVR-parser/results/exp_abd_54-awdata.json"
+    images_dir = args.img_dir
+    # "/home/srkhuran-local/CarlaDReyeVR/carla/PythonAPI/examples/exp_abd-54_02_13_2024_10_31_55/images"
+
     awareness_df = pd.read_json(awareness_parse_file, orient='index')
-    aw_visible = awareness_df["AwarenessData_Visible"]
-
-    get_all_instance_segmentation_images(rec_parse_file, images_dir, awareness_df, sensor_config_file)
+    
+    if args.operation_mode == "offset":        
+        produce_offset_txt(images_dir, sensor_config_file, awareness_df)
+    elif args.operation_mode == "masking":
+        get_all_instance_segmentation_images(images_dir, awareness_df, sensor_config_file)    

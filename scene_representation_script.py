@@ -32,7 +32,21 @@ def get_RGB(frame_num, images_dir):
         raise FileNotFoundError
     
     rgb_image = cv2.imread(image_filename)
-    return rgb_image
+    image_filename_left = "%s/rgb_output_left/%.6d.png" % (images_dir, frame_num)
+    if not os.path.exists(image_filename_left):
+        print(image_filename_left)
+        raise FileNotFoundError
+    
+    rgb_image_left = cv2.imread(image_filename_left)
+
+    image_filename_right = "%s/rgb_output_right/%.6d.png" % (images_dir, frame_num)
+    if not os.path.exists(image_filename_right):
+        print(image_filename_right)
+        raise FileNotFoundError
+    
+    rgb_image_right = cv2.imread(image_filename_right)
+    
+    return rgb_image, rgb_image_left, rgb_image_right
     
     
 def get_instance_segm(frame_num, images_dir):
@@ -121,7 +135,7 @@ def world2pixels(focus_hit_pt, vehicle_transform, K, sensor_config):
     
     return pts_mid, pts_left, pts_right
 
-def gaussian_contour_plot(gaze_image, fname, frame_num, gaze_points, sigma=1.0, contour_levels=3):
+def gaussian_contour_plot(gaze_image, fname, frame_num, gaze_points, sigma=1.0, cam_dir='mid', contour_levels=3):
     # Create a grid of coordinates
     height, width = gaze_image.shape[:2]
     y, x = np.mgrid[0:height, 0:width]
@@ -129,7 +143,7 @@ def gaussian_contour_plot(gaze_image, fname, frame_num, gaze_points, sigma=1.0, 
     composite_gaussian = np.zeros((height, width), dtype=float)
 
     # Combine Gaussians centered at each point
-    for center_pixel in gaze_points:
+    for center_pixel, _ in gaze_points:
         mean = center_pixel
         covariance_matrix = np.eye(2) * (sigma**2)
         gaussian_distribution = multivariate_normal(mean=mean, cov=covariance_matrix)
@@ -146,7 +160,11 @@ def gaussian_contour_plot(gaze_image, fname, frame_num, gaze_points, sigma=1.0, 
     
     if os.path.exists("gaze_heatmap/%s" % fname) is False:
         os.makedirs("gaze_heatmap/%s" % fname)
-    output_file_name_heat = "gaze_heatmap/%s/%s.jpg" % (fname, str(frame_num))
+    
+    if os.path.exists("gaze_heatmap/%s/%s" % (fname, cam_dir)) is False:
+        os.makedirs("gaze_heatmap/%s/%s" % (fname, cam_dir))
+        
+    output_file_name_heat = "gaze_heatmap/%s/%s/%s.jpg" % (fname, cam_dir, str(frame_num))
     plt.savefig(output_file_name_heat)
     plt.clf()
 
@@ -207,10 +225,11 @@ def get_image_inputs(frame_num, recorder_parse_file, recording_data_dict, images
     vehicle_rot = carla.Rotation(*(rot.squeeze()))
     vehicle_transform = carla.Transform(location=vehicle_loc, rotation=vehicle_rot)
 
-    pts2d_mid, _, _ = world2pixels(focus_hit_pt_scaled, vehicle_transform, K, sensor_config)
+    pts2d_mid, pts2d_left, pts2d_right = world2pixels(focus_hit_pt_scaled, vehicle_transform, K, sensor_config)
 
     #Plot the converted gaze coordinate onto the rgb image coordinate space
     image = cv2.circle(rgb_img, pts2d_mid, radius=10, color=(255, 0, 255), thickness=-1)
+    # image = cv2.circle(rgb_img, pts2d_mid, radius=10, color=(255, 0, 255), thickness=-1)
 
     #Plot past 15 frames
     heat_points2 = [pts2d_mid]
@@ -246,12 +265,13 @@ def get_image_inputs(frame_num, recorder_parse_file, recording_data_dict, images
     return image, rgb_img, instance_segm_img
 
 
-def overlay_gaze_and_buttons(frame_num, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config):
-    rgb_frame_delay = 30
+def overlay_gaze_and_buttons(frame_num, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config, data_dir=None):
+    rgb_frame_delay = 2 #TODO: Make Global Variable
+    # rgb_frame_delay = 40
     print("Frame Number: ", frame_num)
     #call get_RGB on specific frame number to obtain that particular image
     try:
-        rgb_img = get_RGB(frame_num+rgb_frame_delay, images_dir)         
+        rgb_img, rgb_img_left, rgb_img_right = get_RGB(frame_num+rgb_frame_delay, images_dir)         
         print("Got RGB Image.")
     except FileNotFoundError:
         return        
@@ -326,6 +346,7 @@ def overlay_gaze_and_buttons(frame_num, recorder_parse_file, recording_data_dict
     [0, cam_info['fy'], cam_info['h']/2],
     [0, 0, 1]])
     
+    
     focus_hit_pt = recording_data_dict[frame_num]["FocusInfo"]["HitPoint"]
     focus_hit_pt_scaled = np.array(focus_hit_pt.squeeze())/100
     loc = recording_data_dict[frame_num]["EgoVariables"]["VehicleLoc"]
@@ -334,13 +355,32 @@ def overlay_gaze_and_buttons(frame_num, recorder_parse_file, recording_data_dict
     vehicle_rot = carla.Rotation(*(rot.squeeze()))
     vehicle_transform = carla.Transform(location=vehicle_loc, rotation=vehicle_rot)
 
-    pts2d_mid, _, _ = world2pixels(focus_hit_pt_scaled, vehicle_transform, K, sensor_config)
+    pts2d_mid, pts2d_left, pts2d_right = world2pixels(focus_hit_pt_scaled, vehicle_transform, K, sensor_config)
+    
+    if (pts2d_mid[0] >= 0 and pts2d_mid[0] <= w) and (pts2d_mid[1] >= 0 and pts2d_mid[1] <= h):
+        image_mid = cv2.circle(rgb_img, pts2d_mid, radius=10, color=(255, 0, 255), thickness=-1)
+        heat_points2 = [[pts2d_mid, 'mid']]
+        image_left = rgb_img_left.copy()
+        image_right = rgb_img_right.copy()
 
-    # Plot the converted gaze coordinate onto the rgb image coordinate space
-    image = cv2.circle(rgb_img, pts2d_mid, radius=10, color=(255, 0, 255), thickness=-1)
+    else:
+        image_mid = rgb_img.copy()
+        
+        if (pts2d_left[0] >= 0 and pts2d_left[0] <= w) and (pts2d_left[1] >= 0 and pts2d_left[1] <= h):
+            image_left = cv2.circle(rgb_img_left, pts2d_left, radius=10, color=(255, 0, 255), thickness=-1)
+            heat_points2 = [[pts2d_left, 'left']]
+        else:
+            image_left = rgb_img_left.copy()
+            
+        if (pts2d_right[0] >= 0 and pts2d_right[0] <= w) and (pts2d_right[1] >= 0 and pts2d_right[1] <= h):
+            image_right = cv2.circle(rgb_img_right, pts2d_right, radius=10, color=(255, 0, 255), thickness=-1)
+            heat_points2 = [[pts2d_right, 'right']]
+        else:
+            image_right = rgb_img_right.copy()
+        # Plot the converted gaze coordinate onto the rgb image coordinate space
 
     # Plot past 15 frames
-    heat_points2 = [pts2d_mid]
+    
     heatmap_points = []
     if frame_num <= 16:
         end_point = frame_num
@@ -357,29 +397,70 @@ def overlay_gaze_and_buttons(frame_num, recorder_parse_file, recording_data_dict
         vehicle_transform = carla.Transform(location=vehicle_loc_i, rotation=vehicle_rot_i)
 
         pts2d_mid, pts2d_left, pts2d_right = world2pixels(focus_hit_pt_i_scaled, vehicle_transform, K, sensor_config)
-        heatmap_points.append(pts2d_mid)
-        heat_points2.append(pts2d_mid)
+        
+        if (pts2d_mid[0] >= 0 and pts2d_mid[0] <= w) and (pts2d_mid[1] >= 0 and pts2d_mid[1] <= h):
+            heatmap_points.append([pts2d_mid, 'mid'])
+            heat_points2.append([pts2d_mid, 'mid'])
+        
+        elif (pts2d_left[0] >= 0 and pts2d_left[0] <= w) and (pts2d_left[1] >= 0 and pts2d_left[1] <= h):
+            heatmap_points.append([pts2d_left, 'left'])
+            heat_points2.append([pts2d_left, 'left'])
+        
+        elif (pts2d_right[0] >= 0 and pts2d_right[0] <= w) and (pts2d_right[1] >= 0 and pts2d_right[1] <= h):
+            heatmap_points.append([pts2d_right, 'right'])
+            heat_points2.append([pts2d_right, 'right'])
+        else:
+            pass
     
     for p in heatmap_points:
-        cv2.circle(image, p, radius=3, color=(255, 0, 0), thickness=-1)
-    
-    overlay_out_dir = "gaze_history/%s" % fname
+        if p[1] == 'mid':
+            cv2.circle(image_mid, p[0], radius=3, color=(255, 0, 0), thickness=-1)
+        elif p[1] == 'left':
+            cv2.circle(image_left, p[0], radius=3, color=(255, 0, 0), thickness=-1)
+        elif p[1] == 'right':
+            cv2.circle(image_right, p[0], radius=3, color=(255, 0, 0), thickness=-1)
+        else:
+            pass
+
+    if data_dir is None:
+        overlay_out_dir = "gaze_button_overlay/%s" % fname
+    else:
+        overlay_out_dir = os.path.join(data_dir, "gaze_button_overlay")
+        
     if os.path.exists(overlay_out_dir) is False:
         os.makedirs(overlay_out_dir)
-    output_file_name = "%s/%s.jpg" % (overlay_out_dir, str(frame_num))
-    cv2.imwrite(output_file_name, image)
+
+    if os.path.exists(os.path.join(overlay_out_dir, 'mid')) is False:
+        os.makedirs(os.path.join(overlay_out_dir, 'mid'))
     
-    gaussian_contour_plot(image, fname, frame_num, heat_points2, sigma=40)
+    if os.path.exists(os.path.join(overlay_out_dir, 'left')) is False:
+        os.makedirs(os.path.join(overlay_out_dir, 'left'))
+
+    if os.path.exists(os.path.join(overlay_out_dir, 'right')) is False:
+        os.makedirs(os.path.join(overlay_out_dir, 'right'))
+        
+    output_file_name = "{}/{}/{:06d}.jpg".format(overlay_out_dir, 'mid', frame_num)
+    cv2.imwrite(output_file_name, image_mid)
     
-    return image, rgb_img
+    output_file_name = "{}/{}/{:06d}.jpg".format(overlay_out_dir, 'left', frame_num)
+    cv2.imwrite(output_file_name, image_left)
+    
+    output_file_name = "{}/{}/{:06d}.jpg".format(overlay_out_dir, 'right', frame_num)
+    cv2.imwrite(output_file_name, image_right)
+    
+    gaussian_contour_plot(image_mid, fname, frame_num, heat_points2, sigma=40, cam_dir='mid')
+    gaussian_contour_plot(image_left, fname, frame_num, heat_points2, sigma=40, cam_dir='left')
+    gaussian_contour_plot(image_right, fname, frame_num, heat_points2, sigma=40, cam_dir='right')
+    
+    return image_mid, rgb_img, image_left, rgb_img_left, image_right, rgb_img_right
     
 
 
 def overlay_gaze_and_buttons_wrapper(args):
-    f, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config = args
-    overlay_gaze_and_buttons(f, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config)
+    f, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config, data_dir = args
+    overlay_gaze_and_buttons(f, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config, data_dir)
 
-def get_all_images(recorder_parse_file, images_dir, awareness_parse_file, sensor_config):
+def get_all_images(recorder_parse_file, images_dir, awareness_parse_file, sensor_config, data_dir=None):
     #Construct dictionary containing necessary data per frame for the focus hit points and vehicle location/orientation
     recording_data_dict = get_data_dict(recorder_parse_file)
 
@@ -387,8 +468,8 @@ def get_all_images(recorder_parse_file, images_dir, awareness_parse_file, sensor
     #     if f > 1:
     #         # get_image_inputs(f, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config)
     #         overlay_gaze_and_buttons(f, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config)
-    args_list = [(f, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config) for f in range(244, max(recording_data_dict.keys()))]
-    with multiprocessing.Pool(processes=20) as pool:
+    args_list = [(f, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config, data_dir) for f in range(max(recording_data_dict.keys()))]
+    with multiprocessing.Pool(processes=10) as pool:
         pool.map(overlay_gaze_and_buttons_wrapper, args_list)
         
     
@@ -397,6 +478,10 @@ def main():
 
     argparser = argparse.ArgumentParser(
         description=__doc__)
+    argparser.add_argument(
+        '-data_dir', '--data-dir',
+        help = "path to the participant data directory"
+    )
     argparser.add_argument(
         '-a', '--aw-parse-file',
         metavar='A',
@@ -418,8 +503,13 @@ def main():
     sensor_config = configparser.ConfigParser()
     sensor_config.read(args.sensor_config)
     
-    get_all_images(args.rec_parse_file, args.images_dir, args.aw_parse_file, sensor_config)
-    
+    if args.data_dir is None:
+        get_all_images(args.rec_parse_file, args.images_dir, args.aw_parse_file, sensor_config, None)
+    else:
+        is_frames_dir = os.path.join(args.data_dir, 'images')
+        awareness_parse_file = os.path.join(args.data_dir, 'rec_parse-awdata.json') 
+        rec_parse_file = os.path.join(args.data_dir, 'rec_parse.txt') 
+        get_all_images(rec_parse_file, is_frames_dir, awareness_parse_file, sensor_config, args.data_dir)
 
 if __name__ == '__main__':
 

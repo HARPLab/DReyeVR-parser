@@ -1,6 +1,7 @@
 from typing import Dict, Optional, List
 from src.parser import parse_file
 from src.utils import get_good_idxs, fill_gaps, smooth_arr, compute_YP, convert_to_df, flatten_dict
+import os
 import numpy as np
 import argparse
 from src.visualizer import (
@@ -128,10 +129,10 @@ def main(filename: str, results_dir: str, force_reload: bool, vlines: Optional[L
     fname = fname.split(".txt")[0]
     txtf = fname + "-awdata.txt"
     jsonf = fname + "-awdata.json"
-    with open('results/'+txtf, 'w') as f:
+    with open(os.path.join(results_dir, txtf), 'w') as f:
         f.write(tabulate(awareness_frame, headers = 'keys', tablefmt = 'fancy_grid'))
     
-    with open('results/'+jsonf, 'w') as f:
+    with open(os.path.join(results_dir, jsonf), 'w') as f:
         awareness_frame.to_json(f, orient = 'index')
     return awareness_frame
     
