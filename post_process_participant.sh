@@ -7,6 +7,7 @@ export out_dir=/media/storage/raw_data/
 # export out_dir=${HOME}/raw_data/
 
 export rec_file_dir=${HOME}/CBDR
+export rec_file_dir=${HOME}/nonCBDR
 # export awdata_file_dir=${HOME}/CarlaDReyeVR/DReyeVR-parser/results
 
 
@@ -57,14 +58,14 @@ for recording_file in ${recording_files}; do
 
     # calculate the offset
     python image_seg_masking.py \
-     --img-dir ${recording_out_dir}/images \
-     -aw ${recording_out_dir}/rec_parse-awdata.json 
+        --img-dir ${recording_out_dir}/images \
+        -aw ${recording_out_dir}/rec_parse-awdata.json 
     
     # TODO produce the gaze button overlay 
     # This will save the frames in the gaze_button_overlay dir in the folder where the script is called from
     python scene_representation_script.py \
     --data-dir ${recording_out_dir} \
-    -s /home/srkhuran-local/CarlaDReyeVR/carla/PythonAPI/examples/sensor_config.ini
+    -s ${sensor_config}
     
     # POSSIBLy: do label correction?       
     end=`date +%s`

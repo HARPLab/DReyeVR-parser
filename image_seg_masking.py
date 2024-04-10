@@ -12,7 +12,8 @@ from matplotlib import image
 from recorder_info_extracter import get_data_dict
 from scene_representation_script import ptsWorld2Cam, world2pixels
 
-rgb_frame_delay = 2
+rgb_frame_delay = 3
+txt_df_offset=0
 _debug = False
 
 def camera_to_2d(sensor_config, frame_num, obj_loc, awareness_df):
@@ -36,9 +37,9 @@ def camera_to_2d(sensor_config, frame_num, obj_loc, awareness_df):
     [0, cam_info['fy'], cam_info['h']/2],
     [0, 0, 1]])
     obj_loc_scaled = np.array(obj_loc.squeeze())/100
-    location = awareness_df["EgoVariables_VehicleLoc"][frame_num-1]
+    location = awareness_df["EgoVariables_VehicleLoc"][frame_num-txt_df_offset]
     ego_loc = np.asarray([location[0], location[1], location[2]])
-    rotation = awareness_df["EgoVariables_VehicleRot"][frame_num-1]
+    rotation = awareness_df["EgoVariables_VehicleRot"][frame_num-txt_df_offset]
     ego_rot = np.asarray([rotation[0], rotation[1], rotation[2]])
     
     vehicle_loc = carla.Location(*(ego_loc.squeeze()))/100
@@ -96,60 +97,216 @@ def check_frame_quality_nonvec(frame_num, recording_data_dict, sensor_config, in
     return False, peds_dict
 
 def check_frame_quality(frame_num, sensor_config, inst_img_path, awareness_df):
-    num_peds = 0
-    min_num_peds = 2
-    min_dist_bn_peds = 20
-    peds_locs = []
-    peds_dict = {}
-    #visible_dict = recording_data_dict[frame_num]["AwarenessData"]["Visible"]
-    visible_list = awareness_df["AwarenessData_Visible"][frame_num-1]
-    #for id in visible_dict:
+    num_objs = 0
+    min_num_objs = 2
+    min_dist_bn_objs = 20
+    obj_locs = []
+    obj_dict = {}
+    print("frame: ", frame_num)
+    visible_list = awareness_df["AwarenessData_Visible"][frame_num-txt_df_offset]
     for i in range(len(visible_list)):
         id = str(visible_list[i])
-        #answer = int(visible_dict[id]["Answer"])
-        answer = int(awareness_df["AwarenessData_Answer"][frame_num-1][i])
-        if answer <= 8 and answer >=1:
-            #location_dict = visible_dict[id]["Location"]
-            #obj_loc = np.asarray([location_dict["x"], location_dict["y"], location_dict["z"]])
-            location = awareness_df["AwarenessData_VisibleLocation"][frame_num-1][i]
+        answer = int(awareness_df["AwarenessData_Answer"][frame_num-txt_df_offset][i])
+        if (answer <= 8 and answer >=1) or (answer >= 16):
+            #print(answer)
+            location = awareness_df["AwarenessData_VisibleLocation"][frame_num-txt_df_offset][i]
             obj_loc = np.asarray([location[0], location[1], location[2]])
             
             obj_loc_2d = camera_to_2d(sensor_config, frame_num, obj_loc, awareness_df)[0]
             if obj_loc_2d[0] > 0 and obj_loc_2d[1] > 0:
-                peds_locs.append(obj_loc_2d)
-                #peds_dict[id] = visible_dict[id]
-                peds_dict[id] = location
-                num_peds += 1
-    
-    if num_peds >= min_num_peds:
+                obj_locs.append(obj_loc_2d)
+                obj_dict[id] = obj_loc_2d
+                num_objs += 1
+
+    if num_objs >= min_num_objs:
+        print(num_objs)
         inst_img  = Image.open(inst_img_path)
         raw_img = np.array(inst_img)
         distances = []
         is_valid = True
 
-
-        all_distances = np.linalg.norm(np.array(peds_locs)[:, np.newaxis, :] - np.array(peds_locs)[np.newaxis, :, :], axis=-1)
-        distances = all_distances[np.triu_indices(num_peds, k=1)]
+        all_distances = np.linalg.norm(np.array(obj_locs)[:, np.newaxis, :] - np.array(obj_locs)[np.newaxis, :, :], axis=-1)
+        distances = all_distances[np.triu_indices(num_objs, k=1)]
         
-        for i, p1 in enumerate(peds_locs):
+        for i, p1 in enumerate(obj_locs):
             # check if any of the locations are on the image edge
             if vectorized_edge_check([p1]):
                 is_valid = False
-                return is_valid, peds_dict
-            # check that the red value of inst seg is 4 corresponding to peds
-            if raw_img[p1[1], p1[0]][0] != 4:
+                return is_valid, obj_dict
+            # check that the red value of inst seg is 4 or 10 corresponding to pedestrians or vehicles
+            if frame_num >= 1575 and frame_num <= 1586:
+                print(raw_img[p1[1], p1[0]])
+                print([p1[1], p1[0]])
+            if (raw_img[p1[1], p1[0]][0] != 4) and (raw_img[p1[1], p1[0]][0] != 10):
+                #print("Not valid R")
                 is_valid = False
-                return is_valid, peds_dict
-
+                return is_valid, obj_dict
         min_dist = min(distances)
-        if min_dist <= min_dist_bn_peds:
+        if min_dist <= min_dist_bn_objs:
             is_valid = False
         
-        return is_valid, peds_dict
+        return is_valid, obj_dict
     
     return None, None
+
+def check_frame_quality_v2(frame_num, sensor_config, inst_img_path, awareness_df):
+    num_objs = 0
+    min_num_objs = 2
+    #print(frame_num)
+    # Get aw_df visible object and the type
+    aw_visible_list = awareness_df["AwarenessData_Visible"][frame_num-txt_df_offset]
+    aw_visible_type = awareness_df["AwarenessData_Type"][frame_num-txt_df_offset]
+    
+    # split into ped visible list and vehicle visible list
+    # check if the object is within bounds as well
+    aw_visible_peds = []
+    aw_visible_vehicles = []
+    for i in range(len(aw_visible_list)):
+        location = awareness_df["AwarenessData_VisibleLocation"][frame_num-txt_df_offset][i]
+        obj_loc = np.asarray([location[0], location[1], location[2]])
+        obj_loc_2d = camera_to_2d(sensor_config, frame_num, obj_loc, awareness_df)[0]
+        if obj_loc_2d[0] > 0 and obj_loc_2d[1] > 0:
+            #obj_locs.append(obj_loc_2d)
+            #obj_dict[id] = obj_loc_2d
+            if aw_visible_type[i] == "walker":
+                aw_visible_peds.append(aw_visible_list[i])
+            else:
+                aw_visible_vehicles.append(aw_visible_list[i])
+    aw_visible_peds = sorted(aw_visible_peds)
+    aw_visible_vehicles = sorted(aw_visible_vehicles)
+    #print("Aw_df Pedestrians:", aw_visible_peds)
+    #print("Aw_df Vehicles: ", aw_visible_vehicles)
+    
+    inst_img  = Image.open(inst_img_path)
+    raw_img = np.array(inst_img)
+    # Extract red, green, and blue channels
+    red_channel = raw_img[:,:,0]  # Red channel
+    green_channel = raw_img[:,:,1]  # Green channel
+    blue_channel = raw_img[:,:,2]  # Blue channel
+    
+    #Pedestrians
+    # Find coordinates where red value is 4
+    coord_4 = np.where(red_channel == 4)
+    # Compute 256*b + g for these coordinates
+    ids4 = 256 * blue_channel[coord_4] + green_channel[coord_4]
+    ped_ids_found = np.unique(ids4)
+    ped_ids_found = np.sort(ped_ids_found)
+    ped_ids_found = ped_ids_found[ped_ids_found != 0]
+    #print("Peds Found:", ped_ids_found)
+    #print(coord_4)
+    
+    #Vehicles 
+    # Find coordinates where red value is 10
+    coord_10 = np.where(red_channel == 10)
+    # Compute 256*b + g for these coordinates
+    ids10 = 256 * blue_channel[coord_10] + green_channel[coord_10]
+    vehicle_ids_found = np.unique(ids10)
+    #print(coord_10)
+    
+    #Two Wheelers
+    # Find coordinates where red value is 23
+    coord_23 = np.where(red_channel == 23)
+    # Compute 256*b + g for these coordinates
+    ids23 = 256 * blue_channel[coord_23] + green_channel[coord_23]
+    pot_two_wheelers_ids_found = np.unique(ids23)
+    
+    #if two wheeler id in peds, pop from peds
+    for tw_id in pot_two_wheelers_ids_found:
+        if tw_id in ped_ids_found:
+            ped_ids_found = ped_ids_found[ped_ids_found != tw_id]
         
-            
+    if len(pot_two_wheelers_ids_found) > 0 and len(vehicle_ids_found) > 0:
+        vehicle_ids_found = np.concatenate((vehicle_ids_found, pot_two_wheelers_ids_found))
+    vehicle_ids_found = np.sort(vehicle_ids_found)
+    vehicle_ids_found = vehicle_ids_found[vehicle_ids_found != 0]
+    #print("Vehicles Found:", vehicle_ids_found)
+    
+    num_objs = len(vehicle_ids_found) + len(ped_ids_found)
+    same_lengths = (len(aw_visible_peds) == len(ped_ids_found)) and (len(aw_visible_vehicles) == len(vehicle_ids_found))
+    if num_objs >= min_num_objs and same_lengths:
+        return True, aw_visible_peds, aw_visible_vehicles, ped_ids_found, vehicle_ids_found
+    else:
+        return False, aw_visible_peds, aw_visible_vehicles, ped_ids_found, vehicle_ids_found
+
+def get_offset_v2(images_dir, sensor_config, awareness_df):
+    f_num = 0
+    for frame_num in range(100, len(awareness_df)):
+        inst_img_path = "%s/instance_segmentation_output/%.6d.png" % (images_dir,  frame_num + rgb_frame_delay)
+        if os.path.exists(inst_img_path):
+            valid_frame, aw_visible_peds, aw_visible_vehicles, ped_ids_found, vehicle_ids_found = check_frame_quality_v2(frame_num, sensor_config, inst_img_path, awareness_df)
+            if valid_frame:
+                f_num = frame_num
+                break
+    print("Frame number used: ", f_num+rgb_frame_delay)
+    print(ped_ids_found)
+    print(aw_visible_peds)
+    offset = None
+    peds_offset = None
+    
+    # ped_diff = []
+    # for p1 in ped_ids_found:
+    #     curr_diffs = []
+    #     for p2 in aw_visible_peds:
+    #         curr_diffs.append(p1-p2)
+    #     ped_diff.append(set(curr_diffs))
+    #peds_offset = ped_diff[0].intersection[ped_diff[1:]]
+    #print(ped_diff)
+    
+    #ped_number = min(len(ped_ids_found), len(aw_visible_peds))
+    for p in range(len(ped_ids_found)):
+        curr_offset = aw_visible_peds[p] - ped_ids_found[p]
+        if peds_offset == None:
+            peds_offset = curr_offset
+        elif peds_offset != curr_offset:
+            return None
+        else:
+            peds_offset = curr_offset
+        
+    print(vehicle_ids_found)
+    print(aw_visible_vehicles)
+    vehicle_offset = None
+    
+    # vehicle_diff = []
+    # for v1 in vehicle_ids_found:
+    #     curr_diffs = []
+    #     for v2 in aw_visible_vehicles:
+    #         curr_diffs.append(v1-v2)
+    #     vehicle_diff.append(set(curr_diffs))
+    #print(vehicle_diff)
+    
+    # all_diffs = ped_diff + vehicle_diff
+    # offsets = list(all_diffs[0].intersection(all_diffs[1:]))
+    #vehicle_number = min(len(vehicle_ids_found), len(aw_visible_vehicles))
+    for v in range(len(vehicle_ids_found)):
+        curr_offset = aw_visible_vehicles[v] - vehicle_ids_found[v]
+        if vehicle_offset == None:
+            vehicle_offset = curr_offset
+        elif vehicle_offset != curr_offset:
+            return None
+        else:
+            vehicle_offset = curr_offset
+    # if offsets == []:
+    #     return None
+    # elif len(offsets) > 1:
+    #     return None
+    # else:
+    #     offset = offsets[0]
+        
+    if vehicle_offset != None and peds_offset != None:
+        if vehicle_offset == peds_offset:
+            offset = vehicle_offset
+        else:
+            return None
+    if vehicle_offset != None and peds_offset == None:
+        offset = vehicle_offset
+    if vehicle_offset == None and peds_offset != None:
+        offset = peds_offset
+    
+    with open("%s/offset.txt" % images_dir, 'w') as file:
+        file.write(str(offset))
+    return offset
+        
+              
 def get_instseg_id_offset(images_dir, sensor_config, awareness_df):
     f_num = 0
     for frame_num in range(100, len(awareness_df)):
@@ -157,7 +314,7 @@ def get_instseg_id_offset(images_dir, sensor_config, awareness_df):
         if os.path.exists(inst_img_path):
             # TODO: this input should be frame_num not +delay -- correct?
             good, peds_dict = check_frame_quality(frame_num, sensor_config, inst_img_path, awareness_df)
-            if good:
+            if good and peds_dict is not None:                
                 f_num = frame_num
                 break
     print("Frame number used: ", f_num+rgb_frame_delay)
@@ -165,7 +322,7 @@ def get_instseg_id_offset(images_dir, sensor_config, awareness_df):
     # f_num = 2380
     # print(peds_dict)
         
-    offset = -1
+    offset = None
     print(peds_dict)
 
     id_keys = sorted([int(k) for k in peds_dict])
@@ -180,10 +337,15 @@ def get_instseg_id_offset(images_dir, sensor_config, awareness_df):
         #get location and convert from camera coordinates
         #location_dict = peds_dict[true_id]["Location"]
         #obj_loc = np.asarray([location_dict["x"], location_dict["y"], location_dict["z"]])
-        location = peds_dict[true_id]
-        obj_loc = np.asarray([location[0], location[1], location[2]])
-        pts2d_mid = camera_to_2d(sensor_config, f_num+rgb_frame_delay, obj_loc, awareness_df)[0]
-
+        
+        #r_val = 4 if (peds_dict[true_id][0] <= 8 and peds_dict[true_id][0] >= 1) else 10
+        
+        #print(r_val)
+        # location = peds_dict[true_id]
+        # obj_loc = np.asarray([location[0], location[1], location[2]])
+        # pts2d_mid = camera_to_2d(sensor_config, f_num, obj_loc, awareness_df)[0]    
+        pts2d_mid = peds_dict[true_id]
+   
         
         try:
             x, y =  pts2d_mid 
@@ -196,6 +358,8 @@ def get_instseg_id_offset(images_dir, sensor_config, awareness_df):
 
             b_values = np.unique(region_b)
             g_values = np.unique(region_g)
+            print("B ", b_values)
+            print(g_values)
             
             #b = raw_img[pts2d_mid[1], pts2d_mid[0], 2]
             #g = raw_img[pts2d_mid[1], pts2d_mid[0], 1]
@@ -228,7 +392,7 @@ def get_instseg_id_offset(images_dir, sensor_config, awareness_df):
             #diff = abs(diff)
 
             #offset should be the same across all objects (and across run)
-            if offset == -1:
+            if offset == None:
                 offset = diff
             else:
                 assert(offset == diff)
@@ -358,7 +522,8 @@ def produce_offset_txt(images_dir, sensor_config, awareness_df):
         sensor_config = configparser.ConfigParser()
         sensor_config.read(sensor_config_file)
 
-        offset = get_instseg_id_offset(images_dir, sensor_config, awareness_df)
+        #offset = get_instseg_id_offset(images_dir, sensor_config, awareness_df)
+        offset = get_offset_v2(images_dir, sensor_config, awareness_df)
 
     print("Offset value: ", offset)
 
@@ -375,7 +540,7 @@ if __name__ =="__main__":
         help = "sensor configuration deatils for camera orientation"
     )
     argparser.add_argument(
-        '--img-dir',        
+        '-i','--img-dir',        
         default="/home/srkhuran-local/CarlaDReyeVR/carla/PythonAPI/examples/exp_abd-54_02_13_2024_10_31_55/images",
         help='directory where images are stored (rgb, instance segmentation, etc.)'
     )
@@ -411,5 +576,8 @@ if __name__ =="__main__":
     
     if args.operation_mode == "offset":        
         produce_offset_txt(images_dir, sensor_config_file, awareness_df)
+        # sensor_config = configparser.ConfigParser()
+        # sensor_config.read(sensor_config_file)
+        # get_offset_v2(images_dir, sensor_config, awareness_df)
     elif args.operation_mode == "masking":
         get_all_instance_segmentation_images(images_dir, awareness_df, sensor_config_file)    

@@ -100,8 +100,22 @@ def main(filename: str, results_dir: str, force_reload: bool, vlines: Optional[L
     # Get rotation for Visible actors from the "Actors" field of the data dictionary
     Rot = []
     for i in range(FramesNum):
-        Rot.append(np.array([data["Actors"]["Rotation"][i][id] for id in Ids[i]]))
-
+        try:
+            Rot.append(np.array([data["Actors"]["Rotation"][i][id] for id in Ids[i]]))
+        except KeyError as e:
+            # If the awareness data is off by one frame due to ego sensor sync issues, we can ignore it
+            # this may be happening because the awareness data is being ticked possibly off by one frame sometimes
+            non_error_ids = []
+            for obj_id in Ids[i]:
+                if obj_id not in data["Actors"]["Rotation"][i]:
+                        if obj_id in data["Actors"]["Rotation"][i-1]:
+                            print(f"Object {obj_id} not found in frame {i}, was in frame {i-1} -- possible AwData off-by-one error")
+                        else:
+                            raise e
+                else:
+                    non_error_ids.append(obj_id)
+            Rot.append(np.array([data["Actors"]["Rotation"][i][id] for id in non_error_ids]))
+            
     # Combine all data with awareness data
     datafinal = data.copy()
 

@@ -468,7 +468,7 @@ def get_all_images(recorder_parse_file, images_dir, awareness_parse_file, sensor
     #     if f > 1:
     #         # get_image_inputs(f, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config)
     #         overlay_gaze_and_buttons(f, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config)
-    args_list = [(f, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config, data_dir) for f in range(max(recording_data_dict.keys()))]
+    args_list = [(f, recorder_parse_file, recording_data_dict, images_dir, awareness_parse_file, sensor_config, data_dir) for f in range(1, max(recording_data_dict.keys()))]
     with multiprocessing.Pool(processes=10) as pool:
         pool.map(overlay_gaze_and_buttons_wrapper, args_list)
         

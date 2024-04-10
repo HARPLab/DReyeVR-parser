@@ -9,9 +9,10 @@ import subprocess
 import signal
 import re
 from PIL import Image
-from PIL import ImageTk
-import tkinter as tk
-
+import matplotlib as mpl
+import warnings
+import matplotlib.cbook
+warnings.filterwarnings("ignore",category=matplotlib.cbook.mplDeprecation)    
 # log errors
 # matplotlib
 
@@ -226,37 +227,49 @@ def print_id_pixel_location_from_image(img, id_offset, image_typ):
     font_scale = 1
     font_color = (255, 255, 255)  # White color in BGR
     line_thickness = 2
+    text_position_offset = [0, 40]
+    obj_ctr = 0
+    # colors = mpl.cm.get_cmap('Set1', len(v_mid) + len(p_mid) + len(w2_mid))
+    colors = mpl.cm.get_cmap('Set1', len(v_mid) + len(p_mid))
 
     # Put the text on the image
     for v in v_mid:
+        obj_ctr += 1
+        font_color = tuple((np.array(colors(obj_ctr)[:3])*255).tolist())
         indices = np.where(np.all(u == v, axis=(1)))
         id = v[0]*256 + v[1] + id_offset
+        img[np.all(img == v, axis=-1)] = font_color
         print("Vehicle", id, image_typ, indices[0][0]//img.shape[1], indices[0][0]%img.shape[1])
-        position = (indices[0][0]%img.shape[1], indices[0][0]//img.shape[1])
+        position = (text_position_offset[0] + indices[0][0]%img.shape[1], text_position_offset[1] + indices[0][0]//img.shape[1])
+        text_position_offset[1] += 20 
         cv2.putText(img, str(id), position, font, font_scale, font_color, line_thickness)
         
 
     for v in p_mid:
+        obj_ctr += 1
+        font_color = tuple((np.array(colors(obj_ctr)[:3])*255).tolist())
         indices = np.where(np.all(u == v, axis=(1)))
+        img[np.all(img == v, axis=-1)] = font_color
         id = v[0]*256 + v[1] + id_offset
         print("Pedestrian", id, image_typ, indices[0][0]//img.shape[1], indices[0][0]%img.shape[1])
-        position = (indices[0][0]%img.shape[1], indices[0][0]//img.shape[1])
+        position = (text_position_offset[0] + indices[0][0]%img.shape[1], text_position_offset[1] + indices[0][0]//img.shape[1])
+        text_position_offset[1] += 20 
         cv2.putText(img, str(id), position, font, font_scale, font_color, line_thickness)
         
-    for v in w2_mid:
-        indices = np.where(np.all(u == v, axis=(1)))
-        id = v[0]*256 + v[1] + id_offset
-        print("2 Wheeler", id, image_typ, indices[0][0]//img.shape[1], indices[0][0]%img.shape[1])
-        position = (indices[0][0]%img.shape[1], indices[0][0]//img.shape[1])
-        cv2.putText(img, str(id), position, font, font_scale, font_color, line_thickness)
+    # for v in w2_mid:
+    #     indices = np.where(np.all(u == v, axis=(1)))
+    #     id = v[0]*256 + v[1] + id_offset
+    #     print("2 Wheeler", id, image_typ, indices[0][0]//img.shape[1], indices[0][0]%img.shape[1])
+    #     position = (text_position_offset[0] + indices[0][0]%img.shape[1], text_position_offset[1] + indices[0][0]//img.shape[1])
+    #     cv2.putText(img, str(id), position, font, font_scale, font_color, line_thickness)
     print('\n')
     
     return img
 
 def open_image_with_xdg(frames_dir, t, image_type):
     frame_delay = 2
-    i = 0
     j = 1
+    i = 0
     extension = ""
     if 'is' in image_type:
         dir_names = ['instance_segmentation_output', 'instance_segmentation_output_left', 'instance_segmentation_output_right']
@@ -265,6 +278,7 @@ def open_image_with_xdg(frames_dir, t, image_type):
     else:
         dir_names = ['left', 'mid', 'right']
         extension = ".jpg"
+        t = max(0, t - 20)
         search_len = 50
         
         
@@ -301,22 +315,13 @@ def open_image_with_xdg(frames_dir, t, image_type):
     except FileNotFoundError:
         print("Error: eog command not found.")
     
-    return [p1, p2, p3]
+    return [p1, p2, p3], t+frame_delay+i*j
 
 
 def correction(is_frames_dir, rgb_frames_dir, t, pq, vq, vehicle_dict, row):
     # read visible from is_frames
     im_left, im_mid, im_right, id_offset = open_images(is_frames_dir, t)
 
-    # create frame with ids overlayed
-    text_img_left = print_id_pixel_location_from_image(im_left, id_offset, 'left')
-    text_img_mid = print_id_pixel_location_from_image(im_mid, id_offset, 'mid')
-    text_img_right = print_id_pixel_location_from_image(im_right, id_offset, 'right')
-
-    
-    stacked_image = np.hstack((text_img_left, text_img_mid, text_img_right))
-    image_pil = Image.fromarray(stacked_image)
-    image_pil.show()
     # window = tk.Tk()
     # window.title("Image Display")
     
@@ -331,12 +336,12 @@ def correction(is_frames_dir, rgb_frames_dir, t, pq, vq, vehicle_dict, row):
     # close_button.pack()
 
     # open the 3 is frames
-    is_processes= open_image_with_xdg(is_frames_dir, t, 'is')
+    is_processes, f_index = open_image_with_xdg(is_frames_dir, t, 'is')
     
     # open the 3 rgb frames
-    rgb_processes = open_image_with_xdg(rgb_frames_dir, t, 'rgb')    
+    rgb_processes, _ = open_image_with_xdg(rgb_frames_dir, t, 'rgb')    
     
-    
+    print("Frame Index:", f_index)
     # print clickable object's data from queues
     v_mid_ids, p_mid_ids = get_id_from_image(im_mid, id_offset)
     v_left_ids, p_left_ids = get_id_from_image(im_left, id_offset)
@@ -344,60 +349,100 @@ def correction(is_frames_dir, rgb_frames_dir, t, pq, vq, vehicle_dict, row):
 
     v_ids = np.unique(np.concatenate([v_mid_ids, v_left_ids, v_right_ids])).astype(int) # default data type for numpy arrays is float
     p_ids = np.unique(np.concatenate([p_mid_ids, p_left_ids, p_right_ids]))
-    for v in v_ids:
+    candidate_ids = []
+    for obj_id in vq.object_dict:
+        obj = vq.object_dict[obj_id]
+        v = obj.id
         clickable = repeat_click_check(v, t, vq.invisible_buffer, vehicle_dict, vq.tagged_objs) # Allowing repeated clicks after some delay
         if clickable:
-            obj_v = vq.find_object(v)
-            if obj_v != None and str(obj_v.id) in row['Actors_Location']:
-                obj_v.print_obj()
+            if obj != None and str(obj.id) in row['Actors_Location']:
+                obj.print_obj()
+                candidate_ids.append(int(obj.id))
             
-    for v in p_ids:
+    for obj_id in pq.object_dict:
+        obj = pq.object_dict[obj_id]
+        v = obj.id
         clickable = repeat_click_check(v, t, pq.invisible_buffer, vehicle_dict, pq.tagged_objs) # Allowing repeated clicks after some delay
         if clickable:
-            obj_v = pq.find_object(v)
-            if obj_v != None and str(obj_v.id) in row['Actors_Location']:
-                obj_v.print_obj()
+            if obj != None and str(obj.id) in row['Actors_Location']:
+                obj.print_obj()
+                candidate_ids.append(int(obj.id))
+
             
+    # create frame with ids overlayed
+    text_img_left = print_id_pixel_location_from_image(im_left, id_offset, 'left')
+    text_img_mid = print_id_pixel_location_from_image(im_mid, id_offset, 'mid')
+    text_img_right = print_id_pixel_location_from_image(im_right, id_offset, 'right')
+
     
+    stacked_image = np.hstack((text_img_left, text_img_mid, text_img_right))
+    image_pil = Image.fromarray(stacked_image[:,:,::-1])
+    image_pil.show(title=str(f_index) + '.png')
+
+    im_left, im_mid, im_right, id_offset = open_images(is_frames_dir, t-10)
+    text_img_left = print_id_pixel_location_from_image(im_left, id_offset, 'left')
+    text_img_mid = print_id_pixel_location_from_image(im_mid, id_offset, 'mid')
+    text_img_right = print_id_pixel_location_from_image(im_right, id_offset, 'right')
+
+    
+    stacked_image = np.hstack((text_img_left, text_img_mid, text_img_right))
+    image_pil = Image.fromarray(stacked_image[:,:,::-1])
+    image_pil.show(title=str(f_index-10) + '.png')
+
+    im_left, im_mid, im_right, id_offset = open_images(is_frames_dir, t+10)
+    text_img_left = print_id_pixel_location_from_image(im_left, id_offset, 'left')
+    text_img_mid = print_id_pixel_location_from_image(im_mid, id_offset, 'mid')
+    text_img_right = print_id_pixel_location_from_image(im_right, id_offset, 'right')
+
+    
+    stacked_image = np.hstack((text_img_left, text_img_mid, text_img_right))
+    image_pil = Image.fromarray(stacked_image[:,:,::-1])
+    image_pil.show(title=str(f_index+10) + '.png')
+
+
+
     # read userinput from prompt (until valid input given)
     while True:
         try:
             correct_id = input('Correct Object Id (If it is an repeat/invalid button click type Inv:error message or Rep:error message):').strip()
-            
-            # TODO
-            # should be able to return invalid button press such as:
-            # 1. no obj, record as error
-            # 2. repeat click, merge w prev/ignore
-            
+                        
             # Type error messages, Invalid:         
-            if re.search(r'\d', correct_id) == None:
+            if re.match('^[0-9]*$', correct_id) == None:
                 for p in is_processes + rgb_processes:
                     print("Process ID:", p.pid)
                     os.kill(p.pid, signal.SIGTERM)
                 # window.destroy()       
                 return None, correct_id
-
+            if int(correct_id) in candidate_ids:
+                if int(correct_id) in vq.object_dict:
+                    # shutdown the images
+                    for p in is_processes + rgb_processes:
+                        print("Process ID:", p.pid)
+                        os.kill(p.pid, signal.SIGTERM)     
+                    # window.destroy()
                     
-            if int(correct_id) in v_ids:
-                # shutdown the images
-                for p in is_processes + rgb_processes:
-                    print("Process ID:", p.pid)
-                    os.kill(p.pid, signal.SIGTERM)     
-                # window.destroy()       
-                return vq.find_object(int(correct_id)), None
-            
-            if int(correct_id) in p_ids:
-                for p in is_processes + rgb_processes:
-                    print("Process ID:", p.pid)
-                    os.kill(p.pid, signal.SIGTERM)    
-                # window.destroy()       
-                return pq.find_object(int(correct_id)), None
+                    
+                    with open(os.path.join(os.path.dirname(is_frames_dir), 'user_corrections.txt'), 'w+') as f:
+                        f.write(str(t) + ' : ' + str(correct_id))
+                        f.close()
+                    return vq.find_object(int(correct_id)), None
+                
+                if int(correct_id) in pq.object_dict:
+                    for p in is_processes + rgb_processes:
+                        print("Process ID:", p.pid)
+                        os.kill(p.pid, signal.SIGTERM)    
+                    # window.destroy()       
+                        
+                    with open(os.path.join(os.path.dirname(is_frames_dir), 'user_corrections.txt'), 'w+') as f:
+                        f.write(str(t) + ' : ' + str(correct_id))
+                        f.close()
+
+                    return pq.find_object(int(correct_id)), None
+            else:
+                print("Id is not in the list of clickable objects")
         except Exception as e:
             print(e, "Try again")
-            
-
         
-        print("Id not found in any queue")
     # close images
     
     
@@ -500,10 +545,12 @@ class object_queues():
             return None
 
 
-    def update_queue(self, row, t, vehicle_dict, is_frames_dir):
-        iv_vis, ip_vis = get_visible_vehicles(is_frames_dir, t)
+    def update_queue(self, row, t, vehicle_dict, is_frames_dir, visible_is_dict):
+        if int(t) in visible_is_dict:
+            iv_vis, ip_vis = visible_is_dict[int(t)]
+        else:
+            iv_vis, ip_vis = get_visible_vehicles(is_frames_dir, t)
         visible_from_IS = list(iv_vis) + list(ip_vis)
-        
         # TODO: this is what to put in the dataframe
         visible = row['AwarenessData_Visible']
         
@@ -711,13 +758,14 @@ def main():
 
     argparser.add_argument(
         '-l', '--time-weight',
-        help = "awareness data frame in json form"
+        help = "time weight for the object queues",
+        default=1
     )
 
     argparser.add_argument(
         '-d', '--debug',
         action = 'store_true',
-        help = "awareness data frame in json form"
+        help = "debug mode to print object queues and error stats"
     )
     args = argparser.parse_args()
 
@@ -725,10 +773,19 @@ def main():
         is_frames_dir = args.isframes_dir        
         rgb_frames_dir = args.rgbframes_dir        
         awareness_parse_file = args.awareness_data
+        visible_is_dict = np.load(os.path.join(args.awareness_data, 'visible_is.npy'), allow_pickle=True)[0]
+        temp_visible_is_dict = {}
+        for f_i, f in enumerate(visible_is_dict['frame_no']):
+            temp_visible_is_dict[int(visible_is_dict['frame_no'][f_i])] = [visible_is_dict['iv_vis'][f_i], visible_is_dict['ip_vis'][f_i]]
+
     else:
         is_frames_dir = os.path.join(args.data_dir, 'images')
         rgb_frames_dir = os.path.join(args.data_dir, 'gaze_button_overlay')        
         awareness_parse_file = os.path.join(args.data_dir, 'rec_parse-awdata.json') 
+        visible_is_dict = np.load(os.path.join(args.data_dir, 'visible_is.npy'), allow_pickle=True)[0]
+        temp_visible_is_dict = {}
+        for f_i, f in enumerate(visible_is_dict['frame_no']):
+            temp_visible_is_dict[int(visible_is_dict['frame_no'][f_i])] = [visible_is_dict['iv_vis'][f_i], visible_is_dict['ip_vis'][f_i]]
     
     data = load_json(awareness_parse_file)
     es = error_stats()
@@ -746,8 +803,8 @@ def main():
     for i_k, k in enumerate(listk[1:-max_consecutive_missing_frames]):
         error_msg = None
     # for i_k, k in enumerate(listk[1:10]):
-        _, _ = vq.update_queue(data[k], int(k), vehicle_dict, is_frames_dir) # each vehicle in each direction
-        visible_is, visible_total = pq.update_queue(data[k], int(k), vehicle_dict, is_frames_dir) # each pedestrian in each direction
+        _, _ = vq.update_queue(data[k], int(k), vehicle_dict, is_frames_dir, temp_visible_is_dict) # each vehicle in each direction
+        visible_is, visible_total = pq.update_queue(data[k], int(k), vehicle_dict, is_frames_dir, temp_visible_is_dict) # each pedestrian in each direction
         correct_for_2_wheelers(vq, pq)
         # if int(k) >= 11276:
         print(k)
@@ -758,8 +815,8 @@ def main():
         pq.print_queues()
         print(pq.object_dict)
         print('\n')
-        print(vq.tagged_objs)
-        print(pq.tagged_objs)
+        print(vq.tagged_objs.keys())
+        print(pq.tagged_objs.keys())
         print('\n')
         print(vehicle_dict)
         print('\n')
@@ -801,8 +858,12 @@ def main():
     
     
     dense_label_df = pd.DataFrame.from_dict(dense_label_df_dict)
-    dense_label_df_fname = os.path.basename(args.awareness_data).split('.')[0].replace('awdata', 'awlabels')+'.csv'
-    dense_label_df.to_csv(dense_label_df_fname)
+    if args.data_dir is not None:
+        dense_label_df_fname = 'corrected-awlabels.csv'
+        dense_label_df.to_csv(os.path.join(args.data_dir, dense_label_df_fname))
+    else:
+        dense_label_df_fname = os.path.basename(args.awareness_data).split('.')[0].replace('awdata', 'awlabels')+'.csv'
+        dense_label_df.to_csv(dense_label_df_fname)
                 
                 
 if __name__ == '__main__':
