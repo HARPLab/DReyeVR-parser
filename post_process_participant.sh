@@ -4,6 +4,7 @@
 export carla_root=${HOME}/CarlaDReyeVR/carla
 export sensor_config=${HOME}/CarlaDReyeVR/carla/PythonAPI/examples/sensor_config.ini
 export out_dir=/media/storage/raw_data/
+export dreyevr_root=${HOME}/CarlaDReyeVR/DReyeVR
 # export out_dir=${HOME}/raw_data/
 
 export rec_file_dir=${HOME}/qualitative_route_recs
@@ -19,7 +20,6 @@ recording_files=$(ls ${rec_file_dir}/*.rec)
 # loop over all recording files
 for recording_file in ${recording_files}; do
     start=`date +%s`
-    # recording_file=${HOME}/CarlaDReyeVR/DReyeVR-parser/recording_files/exp_abd-54_02_13_2024_10_31_55.rec
 
     # below this is in a loop:
     # get basename of the recording file
@@ -50,7 +50,7 @@ for recording_file in ${recording_files}; do
     
 
     # do replay to get sensor data
-    python ${carla_root}/PythonAPI/examples/replay_instance_segm_3_cameras.py \
+    python ${dreyevr_root}/PythonAPI/examples/replay_instance_segm_3_cameras.py \
     -f ${recording_file} \
     --sensor-config ${sensor_config} \
     -aw ${recording_out_dir}/rec_parse-awdata.json \
@@ -66,8 +66,7 @@ for recording_file in ${recording_files}; do
     python scene_representation_script.py \
     --data-dir ${recording_out_dir} \
     -s ${sensor_config}
-    
-    # POSSIBLy: do label correction?       
+   
     end=`date +%s`
 
     runtime=$((end-start))
