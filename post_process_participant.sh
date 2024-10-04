@@ -6,8 +6,8 @@ export sensor_config=${HOME}/CarlaDReyeVR/carla/PythonAPI/examples/sensor_config
 export out_dir=/media/storage/raw_data/
 # export out_dir=${HOME}/raw_data/
 
-export rec_file_dir=${HOME}/CBDR
-export rec_file_dir=${HOME}/nonCBDR
+export rec_file_dir=${HOME}/qualitative_route_recs
+# export rec_file_dir=${HOME}/nonCBDR
 # export awdata_file_dir=${HOME}/CarlaDReyeVR/DReyeVR-parser/results
 
 
