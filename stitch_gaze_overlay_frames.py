@@ -8,21 +8,18 @@ argparser = argparse.ArgumentParser(
     description=__doc__)
 
 argparser.add_argument(
-    '-f', '--frames-dir',
+    '-f', '--data-dir',
     help = "path to the rgb frames"
 )
-argparser.add_argument(
-    '-v', '--video-name',
-    help = "path to the rgb frames"
-)
+
 
 args = argparser.parse_args()
 
 # Directory containing your images
-image_folder = args.frames_dir
+image_folder = args.data_dir + '/gaze_awareness_visualization'
 
 # Video name and codec
-video_name = args.video_name
+video_name = args.data_dir + '/gaze_awareness_visualization.mp4'
 codec = cv2.VideoWriter_fourcc(*'mp4v')
 
 # Get the list of files in each folder
@@ -39,7 +36,7 @@ height, width, _ = left_img.shape
 
 # Create the video writer object
 video = cv2.VideoWriter(os.path.join(image_folder, video_name), codec, 30, (width*3,height))
-
+print(video_name)
 # Loop through each image and write to the video
 for left_file, mid_file, right_file in zip(left_files, mid_files, right_files):
     left_frame = cv2.imread(os.path.join(image_folder, 'left', left_file))
@@ -53,5 +50,5 @@ for left_file, mid_file, right_file in zip(left_files, mid_files, right_files):
     video.write(horizontal_stacked)
 
 # Release resources
-cv2.destroyAllWindows()
+# cv2.destroyAllWindows()
 video.release()

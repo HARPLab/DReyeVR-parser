@@ -117,8 +117,8 @@ def main(filename: str, images_dir: str, results_dir: str, vlines: Optional[List
 
     for frame in range(FramesNum):
         frame_str = format_number(frame + 1)
-        instseg_image_path = images_dir + '/instance_segmentation_output/' + frame_str + ".jpg"
-        rgb_image_path = images_dir + '/rgb_output/' + frame_str + ".jpg"
+        instseg_image_path = images_dir + '/instance_segmentation_output/' + frame_str + ".png"
+        rgb_image_path = images_dir + '/rgb_output/' + frame_str + ".png"
 
         #print(image_path)
         if not os.path.exists(instseg_image_path):
@@ -135,23 +135,21 @@ def main(filename: str, images_dir: str, results_dir: str, vlines: Optional[List
         transp = 0.6
         for i in range(width):
             for j in range(height):
-                ir, ig, ib = inst_img.getpixel((i, j))
+                ir, ig, ib, *_ = inst_img.getpixel((i, j))
                 id = ib * 256 + ig
-
-                rr, rg, rb = rgb_img.getpixel((i, j))
+                rr, rg, rb, *_= rgb_img.getpixel((i, j))
                 res_r, res_g, res_b = (rr * transp, rg * transp, rb * transp)
 
                 if id in TypeDict.keys():
                     if TypeDict[id] == "vehicle" or TypeDict[id] == "walker":
                         if id in ChangeToNoticed[frame]:
-                            print(id)
                             res_r += (1 - transp) * 255
                             res_g += (1 - transp) * ig
                             res_b += (1 - transp) * ib
                         else:
                             res_g += (1 - transp) * ig
                             res_b += (1 - transp) * ib
-                inst_pixels[i, j] = (int(res_r), int(res_b), int(res_g))
+                inst_pixels[i, j] = (int(res_r), int(res_g), int(res_b))
         inst_img.save(results_dir + '/' + frame_str, format="png")
    
 
