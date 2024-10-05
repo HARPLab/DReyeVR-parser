@@ -56,4 +56,4 @@ For each visible object, the correct answer (type + direction) is encoded in a s
 
 ## Offset Correction
 In the segmentation produced, the actors are colored in a way such that represents the ID of the actor. That is the ID of the actor is 256 * [blue pixel value] + [green pixel value]. In our data, however, for some of the episodes there is a constant offset between the calculated actor ID and the actual actor ID.
-The offset_correction_check.sh script checks if there is an offset in a particular episode.
+The offset_correction_check.sh script checks if there is an offset in a particular episode and produces a text file with the offset value
